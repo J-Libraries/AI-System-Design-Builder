@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -41,6 +42,14 @@ public class DesignController {
     @GetMapping("/{id}/document")
     public ResponseEntity<SystemDesignDocument> getDocument(@PathVariable("id") UUID designId) {
         return ResponseEntity.ok(designDocumentService.getDocument(designId));
+    }
+
+    @PutMapping("/{id}/document")
+    public ResponseEntity<SystemDesignDocument> updateDocument(
+            @PathVariable("id") UUID designId,
+            @RequestBody SystemDesignDocument document
+    ) {
+        return ResponseEntity.ok(designDocumentService.updateDocument(designId, document));
     }
 
     @GetMapping("/{id}/export/pdf")

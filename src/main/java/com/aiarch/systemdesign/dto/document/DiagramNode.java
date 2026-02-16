@@ -19,4 +19,6 @@ import lombok.Setter;
 public class DiagramNode {
     private String id;
     private String type;
+    private DiagramPosition position;
+    private DiagramNodeData data;
 }

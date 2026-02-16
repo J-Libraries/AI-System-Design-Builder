@@ -62,6 +62,16 @@ public class DesignDocumentServiceImpl implements DesignDocumentService {
     }
 
     @Override
+    @Transactional
+    public SystemDesignDocument updateDocument(UUID designId, SystemDesignDocument document) {
+        SystemDesign design = systemDesignRepository.findById(designId)
+                .orElseThrow(() -> new ResourceNotFoundException("System design not found with id: " + designId));
+        design.setDocumentJson(documentMapper.toJsonNode(document));
+        systemDesignRepository.save(design);
+        return documentMapper.fromJsonNode(design.getDocumentJson());
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public byte[] exportDocumentPdf(UUID designId) {
         SystemDesign design = systemDesignRepository.findById(designId)
@@ -274,11 +284,16 @@ public class DesignDocumentServiceImpl implements DesignDocumentService {
         int ySpacing = DIAGRAM_HEIGHT / (rows + 1);
 
         for (int i = 0; i < count; i++) {
+            DiagramNode node = nodes.get(i);
+            if (node.getPosition() != null && node.getPosition().getX() != null && node.getPosition().getY() != null) {
+                map.put(node.getId(), new java.awt.Point(node.getPosition().getX(), node.getPosition().getY()));
+                continue;
+            }
             int row = i / columns;
             int col = i % columns;
             int x = (col + 1) * xSpacing;
             int y = (row + 1) * ySpacing;
-            map.put(nodes.get(i).getId(), new java.awt.Point(x, y));
+            map.put(node.getId(), new java.awt.Point(x, y));
         }
         return map;
     }
@@ -295,7 +310,7 @@ public class DesignDocumentServiceImpl implements DesignDocumentService {
             int x = p.x - width / 2;
             int y = p.y - height / 2;
 
-            g2.setColor(new Color(33, 150, 243));
+            g2.setColor(colorByType(node.getType()));
             g2.fillRoundRect(x, y, width, height, 20, 20);
             g2.setColor(Color.WHITE);
             g2.setStroke(new BasicStroke(2f));
@@ -303,7 +318,7 @@ public class DesignDocumentServiceImpl implements DesignDocumentService {
 
             g2.setColor(Color.WHITE);
             g2.setFont(new java.awt.Font("SansSerif", java.awt.Font.BOLD, 14));
-            drawCenteredString(g2, safe(node.getId()), x, y + 10, width, 22);
+            drawCenteredString(g2, safe(labelForNode(node)), x, y + 10, width, 22);
             g2.setFont(new java.awt.Font("SansSerif", java.awt.Font.PLAIN, 11));
             drawCenteredString(g2, safe(node.getType()), x, y + 34, width, 16);
         }
@@ -318,8 +333,8 @@ public class DesignDocumentServiceImpl implements DesignDocumentService {
         g2.setFont(new java.awt.Font("SansSerif", java.awt.Font.PLAIN, 11));
 
         for (DiagramEdge edge : edges) {
-            java.awt.Point from = positions.get(edge.getFrom());
-            java.awt.Point to = positions.get(edge.getTo());
+            java.awt.Point from = positions.get(resolveEdgeSource(edge));
+            java.awt.Point to = positions.get(resolveEdgeTarget(edge));
             if (from == null || to == null) {
                 continue;
             }
@@ -359,6 +374,47 @@ public class DesignDocumentServiceImpl implements DesignDocumentService {
         int drawX = x + (width - metrics.stringWidth(text)) / 2;
         int drawY = y + ((height - metrics.getHeight()) / 2) + metrics.getAscent();
         g2.drawString(text, drawX, drawY);
+    }
+
+    private String resolveEdgeSource(DiagramEdge edge) {
+        if (edge.getSource() != null && !edge.getSource().isBlank()) {
+            return edge.getSource();
+        }
+        return edge.getFrom();
+    }
+
+    private String resolveEdgeTarget(DiagramEdge edge) {
+        if (edge.getTarget() != null && !edge.getTarget().isBlank()) {
+            return edge.getTarget();
+        }
+        return edge.getTo();
+    }
+
+    private String labelForNode(DiagramNode node) {
+        if (node.getData() != null && node.getData().getLabel() != null && !node.getData().getLabel().isBlank()) {
+            return node.getData().getLabel();
+        }
+        return node.getId();
+    }
+
+    private Color colorByType(String rawType) {
+        if (rawType == null) {
+            return new Color(33, 150, 243);
+        }
+        String type = rawType.toLowerCase();
+        if (type.contains("gateway") || type.contains("cdn") || type.contains("client")) {
+            return new Color(79, 70, 229);
+        }
+        if (type.contains("database") || type.contains("cache") || type.contains("storage")) {
+            return new Color(234, 88, 12);
+        }
+        if (type.contains("queue") || type.contains("worker")) {
+            return new Color(202, 138, 4);
+        }
+        if (type.contains("observability") || type.contains("monitor")) {
+            return new Color(22, 163, 74);
+        }
+        return new Color(33, 150, 243);
     }
 
     private static class PageNumberEventHandler extends PdfPageEventHelper {

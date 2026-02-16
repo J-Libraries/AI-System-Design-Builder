@@ -34,7 +34,19 @@ public class AIStageServiceImpl implements AIStageService {
         return runStage(
                 "HLD",
                 promptTemplateService.hldPrompt(request),
-                Set.of("overview", "assumptions", "capacity_estimation", "hld", "api_contracts", "database_schemas", "tradeoffs")
+                Set.of(
+                        "overview",
+                        "assumptions",
+                        "capacity_estimation",
+                        "hld",
+                        "api_contracts",
+                        "database_schemas",
+                        "backend_architecture",
+                        "software_architecture",
+                        "devops_strategy",
+                        "docker_strategy",
+                        "tradeoffs"
+                )
         );
     }
 

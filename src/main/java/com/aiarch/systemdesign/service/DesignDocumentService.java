@@ -7,5 +7,7 @@ public interface DesignDocumentService {
 
     SystemDesignDocument getDocument(UUID designId);
 
+    SystemDesignDocument updateDocument(UUID designId, SystemDesignDocument document);
+
     byte[] exportDocumentPdf(UUID designId);
 }

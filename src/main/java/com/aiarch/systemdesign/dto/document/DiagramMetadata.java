@@ -20,4 +20,5 @@ import lombok.Setter;
 public class DiagramMetadata {
     private List<DiagramNode> nodes;
     private List<DiagramEdge> edges;
+    private String mermaid;
 }

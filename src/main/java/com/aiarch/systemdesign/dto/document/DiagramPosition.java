@@ -16,12 +16,7 @@ import lombok.Setter;
 @AllArgsConstructor
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class DiagramEdge {
-    private String id;
-    private String source;
-    private String target;
-    private String from;
-    private String to;
-    private String label;
-    private Boolean animated;
+public class DiagramPosition {
+    private Integer x;
+    private Integer y;
 }
