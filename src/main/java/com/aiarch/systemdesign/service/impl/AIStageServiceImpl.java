@@ -104,6 +104,23 @@ public class AIStageServiceImpl implements AIStageService {
         );
     }
 
+    @Override
+    public DesignStageResult generateTaskBreakdown(
+            DesignStageResult hld,
+            DesignStageResult componentBreakdown,
+            DesignStageResult lld
+    ) {
+        return runStage(
+                "TASK_BREAKDOWN",
+                promptTemplateService.taskBreakdownPrompt(
+                        hld.getContent(),
+                        componentBreakdown.getContent(),
+                        lld.getContent()
+                ),
+                Set.of("task_breakdown")
+        );
+    }
+
     private DesignStageResult runStage(String stageName, String initialPrompt, Set<String> requiredFields) {
         log.info("Starting AI stage={}", stageName);
         String prompt = initialPrompt;

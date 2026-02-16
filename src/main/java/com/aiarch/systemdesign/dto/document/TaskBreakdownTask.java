@@ -3,7 +3,6 @@ package com.aiarch.systemdesign.dto.document;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
-import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -17,11 +16,10 @@ import lombok.Setter;
 @AllArgsConstructor
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class Component {
-    private String name;
-    private String type;
-    private String responsibility;
-    private Integer buildOrder;
-    private String implementationApproach;
-    private List<String> dependencies;
+public class TaskBreakdownTask {
+    private String taskName;
+    private String description;
+    private Integer hoursExperiencedDeveloper;
+    private Integer hoursMidLevelDeveloper;
+    private Integer hoursFresher;
 }

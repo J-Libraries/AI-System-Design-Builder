@@ -31,5 +31,6 @@ public class SystemDesignDocument {
     private String scalingStrategy;
     private String failureHandling;
     private String tradeoffs;
+    private List<TaskBreakdownItem> taskBreakdown;
     private DiagramMetadata diagramMetadata;
 }

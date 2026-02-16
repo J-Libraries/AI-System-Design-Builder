@@ -18,6 +18,12 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 Expected DAU: %s
                 Region: %s
                 Scale: %s
+                Target Platform: %s
+                Design Domain: %s
+                Preferred Stack: %s
+                Preferred Database: %s
+                Server Type: %s
+                Container Strategy: %s
 
                 Depth requirements:
                 1) Cover how EACH functional requirement is handled by specific components.
@@ -26,10 +32,18 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                    Feed Service, Media Service, Notification Service, Search Service, Rate Limiter, Cache,
                    Message Queue/Event Bus, Worker, Object Storage, CDN, SQL/NoSQL, Observability stack.
                 4) Keep architecture text practical and implementation-oriented, not generic.
-                5) Include at least 12 API contracts spanning auth, user/profile, core business objects,
-                   search/feed, notification, admin/ops, and health/metrics endpoints.
+                5) Include at least 20 API contracts spanning auth, user/profile, core business objects,
+                   search/feed, notification, admin/ops, health/metrics, and integration endpoints.
                 6) Include dedicated design viewpoints inspired by backend, software architect,
                    devops, and docker roadmaps.
+                7) Tailor the architecture and implementation choices strongly for the selected
+                   target platform, design domain, and preferred stack.
+                8) If design domain is MOBILE, include BFF/API optimization, offline sync, push notifications,
+                   and mobile telemetry.
+                9) If design domain is FRONTEND, include rendering strategy, state management, caching strategy,
+                   asset delivery, and observability.
+                10) If design domain is DEVOPS or SERVER_ARCHITECTURE, include deployment topology, CI/CD,
+                   infra automation, runtime operations, security controls, and SLO governance.
 
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema:
@@ -69,7 +83,13 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                         : request.getNonFunctionalRequirements(),
                 request.getExpectedDAU(),
                 request.getRegion(),
-                request.getScale()
+                request.getScale(),
+                request.getTargetPlatform(),
+                request.getDesignDomain(),
+                request.getTechStackChoice(),
+                request.getDatabaseChoice(),
+                request.getServerType(),
+                request.getContainerStrategy()
         );
     }
 
@@ -85,12 +105,24 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 2) For each component, provide detailed responsibility and explicit dependencies.
                 3) Describe cross-cutting components as needed: auth, observability, config, rate limiting.
                 4) Ensure components map back to functional requirements.
+                5) Include execution order (build_order) for implementation sequencing and
+                   implementation_approach to explain how each module should be built.
+                6) If the product has mobile context, include mobile-specific modules:
+                   auth/onboarding, profile/session, feed/listing, local storage/offline sync,
+                   push notification integration, analytics/telemetry, and crash reporting.
 
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema:
                 {
                   "components": [
-                    {"name":"string","type":"string","responsibility":"string","dependencies":["string"]}
+                    {
+                      "name":"string",
+                      "type":"string",
+                      "responsibility":"string",
+                      "build_order":1,
+                      "implementation_approach":"string",
+                      "dependencies":["string"]
+                    }
                   ]
                 }
                 """.formatted(hldJson);
@@ -231,6 +263,56 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                   "mermaid": "flowchart LR\\nclient[Client] --> gateway[API Gateway]"
                 }
                 """.formatted(hldJson, lldJson);
+    }
+
+    @Override
+    public String taskBreakdownPrompt(String hldJson, String componentBreakdownJson, String lldJson) {
+        return """
+                Build an implementation plan from the provided design context.
+                HLD_JSON:
+                %s
+                COMPONENT_BREAKDOWN_JSON:
+                %s
+                LLD_JSON:
+                %s
+
+                Requirements:
+                1) Provide complete module-wise execution plan with realistic engineering tasks.
+                2) Keep modules in delivery order to show what should be built first, next, and later.
+                3) For each module include implementation approach and a detailed task-level plan.
+                4) Estimate effort in HOURS for:
+                   - experienced developer
+                   - mid level developer
+                   - fresher
+                5) If this is mobile-oriented, include mobile client modules, API integration,
+                   local persistence/offline sync, notification integration, release pipeline,
+                   and QA/sign-off tasks.
+                6) Each module must have at least 6 task rows and each task row should include
+                   task-level hours for all 3 developer levels.
+
+                Return ONLY valid JSON. No markdown. No comments. No additional text.
+                Follow this exact schema:
+                {
+                  "task_breakdown": [
+                    {
+                      "module_name": "string",
+                      "implementation_approach": "string",
+                      "tasks": [
+                        {
+                          "task_name": "string",
+                          "description": "string",
+                          "hours_experienced_developer": 0,
+                          "hours_mid_level_developer": 0,
+                          "hours_fresher": 0
+                        }
+                      ],
+                      "hours_experienced_developer": 0,
+                      "hours_mid_level_developer": 0,
+                      "hours_fresher": 0
+                    }
+                  ]
+                }
+                """.formatted(hldJson, componentBreakdownJson, lldJson);
     }
 
     @Override

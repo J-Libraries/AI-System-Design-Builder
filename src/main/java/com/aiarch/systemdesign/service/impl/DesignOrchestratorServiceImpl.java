@@ -13,6 +13,8 @@ import com.aiarch.systemdesign.dto.document.DiagramNode;
 import com.aiarch.systemdesign.dto.document.DiagramNodeData;
 import com.aiarch.systemdesign.dto.document.DiagramPosition;
 import com.aiarch.systemdesign.dto.document.SystemDesignDocument;
+import com.aiarch.systemdesign.dto.document.TaskBreakdownItem;
+import com.aiarch.systemdesign.dto.document.TaskBreakdownTask;
 import com.aiarch.systemdesign.mapper.SystemDesignDocumentMapper;
 import com.aiarch.systemdesign.model.SystemDesign;
 import com.aiarch.systemdesign.repository.SystemDesignRepository;
@@ -23,11 +25,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -54,7 +56,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
     private static final TypeReference<List<ApiContract>> API_CONTRACT_LIST_TYPE = new TypeReference<>() { };
     private static final TypeReference<List<DatabaseSchema>> DATABASE_SCHEMA_LIST_TYPE = new TypeReference<>() { };
     private static final TypeReference<List<DataFlowScenario>> DATA_FLOW_LIST_TYPE = new TypeReference<>() { };
-    private static final int MIN_API_CONTRACTS = 12;
+    private static final TypeReference<List<TaskBreakdownItem>> TASK_BREAKDOWN_TYPE = new TypeReference<>() { };
+    private static final int MIN_API_CONTRACTS = 20;
     private static final int MIN_VISUAL_NODES = 10;
     private static final int BASE_X_SPACING = 280;
     private static final int BASE_Y_SPACING = 150;
@@ -86,6 +89,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     25,
                     () -> aiStageService.generateComponentBreakdown(hld)
             );
+            List<Component> componentsForFallback = extractComponentsForFallback(componentBreakdown);
             DesignStageResult lld = executeStage(
                     designId,
                     "LLD",
@@ -118,11 +122,18 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     65,
                     () -> aiStageService.generateDataFlow(hld, lld)
             );
-            DesignStageResult diagramMetadata = executeStage(
+            DesignStageResult diagramMetadata = executeDiagramStageWithFallback(
                     designId,
-                    "DIAGRAM_METADATA",
-                    100,
-                    () -> aiStageService.generateDiagramMetadata(hld, lld)
+                    hld,
+                    lld,
+                    componentsForFallback
+            );
+            DesignStageResult taskBreakdown = executeTaskBreakdownStageWithFallback(
+                    designId,
+                    hld,
+                    componentBreakdown,
+                    lld,
+                    componentsForFallback
             );
             DesignStageResult scaling = scalingFuture.join();
             DesignStageResult failureHandling = failureFuture.join();
@@ -134,7 +145,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     dataFlow.getContent(),
                     scaling.getContent(),
                     failureHandling.getContent(),
-                    diagramMetadata.getContent()
+                    diagramMetadata.getContent(),
+                    taskBreakdown.getContent()
             );
 
             int nextVersion = systemDesignRepository.findTopByProductNameOrderByVersionDesc(request.getProductName())
@@ -180,7 +192,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             String dataFlowJson,
             String scalingJson,
             String failureJson,
-            String diagramJson
+            String diagramJson,
+            String taskBreakdownJson
     ) {
         JsonNode hldNode = readJson(hldJson);
         JsonNode componentNode = readJson(componentJson);
@@ -189,11 +202,16 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         JsonNode scalingNode = readJson(scalingJson);
         JsonNode failureNode = readJson(failureJson);
         JsonNode diagramNode = readJson(diagramJson);
+        JsonNode taskBreakdownNode = readJson(taskBreakdownJson);
 
-        List<Component> components = readList(componentNode, "components", COMPONENT_LIST_TYPE);
+        List<Component> components = enrichComponents(readList(componentNode, "components", COMPONENT_LIST_TYPE));
         List<ApiContract> apiContracts = readList(hldNode, "api_contracts", API_CONTRACT_LIST_TYPE);
         List<ApiContract> enrichedApiContracts = ensureRichApiContracts(apiContracts, components);
         DiagramMetadata diagramMetadata = enrichDiagramMetadata(readObject(diagramNode, DiagramMetadata.class), components);
+        List<TaskBreakdownItem> taskBreakdown = normalizeTaskBreakdown(readList(taskBreakdownNode, "task_breakdown", TASK_BREAKDOWN_TYPE));
+        if (taskBreakdown.isEmpty()) {
+            taskBreakdown = buildFallbackTaskBreakdown(components);
+        }
 
         return SystemDesignDocument.builder()
                 .overview(getText(hldNode, "overview"))
@@ -208,6 +226,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 .scalingStrategy(resolveScalingText(scalingNode))
                 .failureHandling(resolveFailureText(failureNode))
                 .tradeoffs(getText(hldNode, "tradeoffs"))
+                .taskBreakdown(taskBreakdown)
                 .diagramMetadata(diagramMetadata)
                 .build();
     }
@@ -301,6 +320,29 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         return "Failure handling strategy includes retries, circuit breakers, graceful degradation, and operational recovery steps.";
     }
 
+    private List<Component> enrichComponents(List<Component> components) {
+        if (components == null || components.isEmpty()) {
+            return List.of();
+        }
+        List<Component> sanitized = new ArrayList<>();
+        int nextOrder = 1;
+        for (Component component : components) {
+            if (component == null) {
+                continue;
+            }
+            if (component.getBuildOrder() == null || component.getBuildOrder() <= 0) {
+                component.setBuildOrder(nextOrder);
+            }
+            if (component.getImplementationApproach() == null || component.getImplementationApproach().isBlank()) {
+                component.setImplementationApproach("Implement with clear interfaces, unit tests, and production-grade observability.");
+            }
+            nextOrder = Math.max(nextOrder + 1, component.getBuildOrder() + 1);
+            sanitized.add(component);
+        }
+        sanitized.sort(Comparator.comparing(Component::getBuildOrder));
+        return sanitized;
+    }
+
     private List<ApiContract> ensureRichApiContracts(List<ApiContract> original, List<Component> components) {
         Map<String, ApiContract> byMethodPath = new LinkedHashMap<>();
         if (original != null) {
@@ -337,16 +379,33 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         List<ApiContract> apis = new ArrayList<>();
         apis.add(api("Register User", "POST", "/api/v1/auth/register"));
         apis.add(api("Login", "POST", "/api/v1/auth/login"));
+        apis.add(api("Logout", "POST", "/api/v1/auth/logout"));
         apis.add(api("Refresh Token", "POST", "/api/v1/auth/refresh"));
         apis.add(api("Get User Profile", "GET", "/api/v1/users/{userId}"));
         apis.add(api("Update User Profile", "PUT", "/api/v1/users/{userId}"));
+        apis.add(api("Update User Preferences", "PATCH", "/api/v1/users/{userId}/preferences"));
+        apis.add(api("Get User Session", "GET", "/api/v1/sessions/current"));
         apis.add(api("Create Core Resource", "POST", "/api/v1/resources"));
         apis.add(api("Read Core Resource", "GET", "/api/v1/resources/{resourceId}"));
+        apis.add(api("Update Core Resource", "PUT", "/api/v1/resources/{resourceId}"));
+        apis.add(api("Delete Core Resource", "DELETE", "/api/v1/resources/{resourceId}"));
         apis.add(api("List Feed", "GET", "/api/v1/feed"));
+        apis.add(api("List Personalized Feed", "GET", "/api/v1/feed/personalized"));
         apis.add(api("Search", "GET", "/api/v1/search"));
+        apis.add(api("Get Recommendations", "GET", "/api/v1/recommendations"));
         apis.add(api("Register Notification Token", "POST", "/api/v1/notifications/token"));
+        apis.add(api("List Notifications", "GET", "/api/v1/notifications"));
+        apis.add(api("Mark Notification Read", "PATCH", "/api/v1/notifications/{notificationId}/read"));
+        apis.add(api("Sync Mobile Offline Queue", "POST", "/api/v1/mobile/sync"));
+        apis.add(api("Upload Media", "POST", "/api/v1/media/upload"));
+        apis.add(api("Fetch Feature Flags", "GET", "/api/v1/config/feature-flags"));
         apis.add(api("Health Check", "GET", "/api/v1/health"));
         apis.add(api("Metrics", "GET", "/api/v1/metrics"));
+        apis.add(api("Readiness", "GET", "/api/v1/readiness"));
+        apis.add(api("Liveness", "GET", "/api/v1/liveness"));
+        apis.add(api("Create Admin Job", "POST", "/api/v1/admin/jobs"));
+        apis.add(api("List Admin Jobs", "GET", "/api/v1/admin/jobs"));
+        apis.add(api("Get Audit Logs", "GET", "/api/v1/admin/audit-logs"));
 
         if (components != null) {
             for (Component component : components) {
@@ -368,6 +427,170 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         return apis;
     }
 
+    private List<TaskBreakdownItem> buildFallbackTaskBreakdown(List<Component> components) {
+        List<Component> sourceComponents = components;
+        if (sourceComponents == null || sourceComponents.isEmpty()) {
+            sourceComponents = List.of(
+                    Component.builder().name("Foundation Setup").type("service").build(),
+                    Component.builder().name("Core Module Development").type("service").build(),
+                    Component.builder().name("Data Layer & Integrations").type("database").build(),
+                    Component.builder().name("Quality, Observability & Hardening").type("observability").build(),
+                    Component.builder().name("Release & Deployment").type("devops").build()
+            );
+        }
+        List<TaskBreakdownItem> items = new ArrayList<>();
+        for (Component component : sourceComponents) {
+            if (component == null || component.getName() == null || component.getName().isBlank()) {
+                continue;
+            }
+            int base = estimateBaseHours(component);
+            List<TaskBreakdownTask> tasks = defaultTasksForComponent(component, base);
+            items.add(TaskBreakdownItem.builder()
+                    .moduleName(component.getName())
+                    .implementationApproach(component.getImplementationApproach())
+                    .tasks(tasks)
+                    .hoursExperiencedDeveloper(sumTaskHours(tasks, Role.EXPERIENCED))
+                    .hoursMidLevelDeveloper(sumTaskHours(tasks, Role.MID))
+                    .hoursFresher(sumTaskHours(tasks, Role.FRESHER))
+                    .build());
+        }
+        return items;
+    }
+
+    private int estimateBaseHours(Component component) {
+        int dependencyWeight = component.getDependencies() == null ? 0 : component.getDependencies().size() * 2;
+        int complexityWeight = 6;
+        String type = component.getType() == null ? "" : component.getType().toLowerCase();
+        if (type.contains("database") || type.contains("queue") || type.contains("cache")) {
+            complexityWeight = 10;
+        } else if (type.contains("gateway") || type.contains("auth")) {
+            complexityWeight = 12;
+        } else if (type.contains("mobile") || type.contains("frontend")) {
+            complexityWeight = 9;
+        }
+        return Math.max(8, complexityWeight + dependencyWeight);
+    }
+
+    private List<TaskBreakdownItem> normalizeTaskBreakdown(List<TaskBreakdownItem> items) {
+        if (items == null || items.isEmpty()) {
+            return List.of();
+        }
+        List<TaskBreakdownItem> normalized = new ArrayList<>();
+        for (TaskBreakdownItem item : items) {
+            if (item == null || item.getModuleName() == null || item.getModuleName().isBlank()) {
+                continue;
+            }
+
+            List<TaskBreakdownTask> tasks = item.getTasks();
+            if (tasks == null || tasks.isEmpty()) {
+                Component pseudo = Component.builder().name(item.getModuleName()).type("service").build();
+                tasks = defaultTasksForComponent(pseudo, 10);
+            } else {
+                List<TaskBreakdownTask> sanitizedTasks = new ArrayList<>();
+                for (TaskBreakdownTask task : tasks) {
+                    if (task == null || task.getTaskName() == null || task.getTaskName().isBlank()) {
+                        continue;
+                    }
+                    int experienced = positiveOr(task.getHoursExperiencedDeveloper(), 2);
+                    int mid = positiveOr(task.getHoursMidLevelDeveloper(), (int) Math.round(experienced * 1.5));
+                    int fresher = positiveOr(task.getHoursFresher(), experienced * 2);
+                    sanitizedTasks.add(TaskBreakdownTask.builder()
+                            .taskName(task.getTaskName())
+                            .description(task.getDescription() == null || task.getDescription().isBlank()
+                                    ? "Implement and verify task completion."
+                                    : task.getDescription())
+                            .hoursExperiencedDeveloper(experienced)
+                            .hoursMidLevelDeveloper(mid)
+                            .hoursFresher(fresher)
+                            .build());
+                }
+                tasks = sanitizedTasks;
+            }
+
+            int experiencedTotal = sumTaskHours(tasks, Role.EXPERIENCED);
+            int midTotal = sumTaskHours(tasks, Role.MID);
+            int fresherTotal = sumTaskHours(tasks, Role.FRESHER);
+
+            normalized.add(TaskBreakdownItem.builder()
+                    .moduleName(item.getModuleName())
+                    .implementationApproach(
+                            item.getImplementationApproach() == null || item.getImplementationApproach().isBlank()
+                                    ? "Build iteratively with contracts, tests, and deployment validation."
+                                    : item.getImplementationApproach()
+                    )
+                    .tasks(tasks)
+                    .hoursExperiencedDeveloper(positiveOr(item.getHoursExperiencedDeveloper(), experiencedTotal))
+                    .hoursMidLevelDeveloper(positiveOr(item.getHoursMidLevelDeveloper(), midTotal))
+                    .hoursFresher(positiveOr(item.getHoursFresher(), fresherTotal))
+                    .build());
+        }
+        return normalized;
+    }
+
+    private List<TaskBreakdownTask> defaultTasksForComponent(Component component, int baseHours) {
+        String type = component.getType() == null ? "" : component.getType().toLowerCase();
+        List<TaskBreakdownTask> tasks = new ArrayList<>();
+        tasks.add(task("Requirements & acceptance", "Finalize user stories, edge cases, and acceptance criteria.", 2));
+        tasks.add(task("Module scaffolding", "Create project/module structure, interfaces, and configs.", 2));
+        tasks.add(task("Core implementation", "Implement core business logic for the module.", Math.max(3, baseHours / 4)));
+        tasks.add(task("Integration wiring", "Integrate dependencies and external/internal APIs.", Math.max(2, baseHours / 6)));
+        tasks.add(task("Test coverage", "Add unit/integration tests and fix defects.", Math.max(2, baseHours / 6)));
+        tasks.add(task("Observability & hardening", "Add logs/metrics/alerts, review reliability and security.", 2));
+
+        if (type.contains("mobile") || type.contains("frontend")) {
+            tasks.add(task("UI states & accessibility", "Build loading/error/empty states and accessibility support.", 3));
+            tasks.add(task("Offline & sync behavior", "Implement local persistence and sync conflict handling.", 3));
+        }
+        if (type.contains("auth") || type.contains("gateway")) {
+            tasks.add(task("Auth/security policies", "Implement token validation, RBAC, and abuse controls.", 3));
+        }
+        if (type.contains("database") || type.contains("cache") || type.contains("queue")) {
+            tasks.add(task("Schema/capacity tuning", "Tune schema/index/retention and validate load behavior.", 3));
+        }
+        return tasks;
+    }
+
+    private TaskBreakdownTask task(String name, String description, int experiencedHours) {
+        return TaskBreakdownTask.builder()
+                .taskName(name)
+                .description(description)
+                .hoursExperiencedDeveloper(experiencedHours)
+                .hoursMidLevelDeveloper((int) Math.round(experiencedHours * 1.5))
+                .hoursFresher(experiencedHours * 2)
+                .build();
+    }
+
+    private int sumTaskHours(List<TaskBreakdownTask> tasks, Role role) {
+        if (tasks == null || tasks.isEmpty()) {
+            return 0;
+        }
+        int sum = 0;
+        for (TaskBreakdownTask task : tasks) {
+            if (task == null) {
+                continue;
+            }
+            sum += switch (role) {
+                case EXPERIENCED -> positiveOr(task.getHoursExperiencedDeveloper(), 0);
+                case MID -> positiveOr(task.getHoursMidLevelDeveloper(), 0);
+                case FRESHER -> positiveOr(task.getHoursFresher(), 0);
+            };
+        }
+        return sum;
+    }
+
+    private int positiveOr(Integer value, int fallback) {
+        if (value == null || value <= 0) {
+            return fallback;
+        }
+        return value;
+    }
+
+    private enum Role {
+        EXPERIENCED,
+        MID,
+        FRESHER
+    }
+
     private ApiContract api(String name, String method, String path) {
         return ApiContract.builder()
                 .name(name)
@@ -385,6 +608,91 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
 
     private String normalizePath(String path) {
         return path == null ? "" : path.trim();
+    }
+
+    private List<Component> extractComponentsForFallback(DesignStageResult componentBreakdown) {
+        if (componentBreakdown == null || componentBreakdown.getContent() == null || componentBreakdown.getContent().isBlank()) {
+            return List.of();
+        }
+        try {
+            JsonNode node = readJson(componentBreakdown.getContent());
+            return enrichComponents(readList(node, "components", COMPONENT_LIST_TYPE));
+        } catch (Exception ex) {
+            log.warn("Failed to extract components for fallback path", ex);
+            return List.of();
+        }
+    }
+
+    private DesignStageResult executeDiagramStageWithFallback(
+            UUID designId,
+            DesignStageResult hld,
+            DesignStageResult lld,
+            List<Component> components
+    ) {
+        final String stageName = "DIAGRAM_METADATA";
+        final int progress = 96;
+        designGenerationPublisher.publishStageStarted(designId.toString(), stageName, progress);
+        log.info("DesignId={} stage={} started", designId, stageName);
+        try {
+            DesignStageResult result = aiStageService.generateDiagramMetadata(hld, lld);
+            designGenerationPublisher.publishStageCompleted(designId.toString(), stageName, progress, result.getContent());
+            log.info("DesignId={} stage={} completed", designId, stageName);
+            return result;
+        } catch (Exception ex) {
+            log.warn("DesignId={} stage={} failed. Falling back to deterministic diagram.", designId, stageName, ex);
+            designGenerationPublisher.publishStageFailed(designId.toString(), stageName, ex.getMessage());
+            DiagramMetadata fallbackDiagram = enrichDiagramMetadata(null, components);
+            String fallbackJson = toJsonSafely(fallbackDiagram, "{}");
+            DesignStageResult fallback = DesignStageResult.builder()
+                    .stageName(stageName)
+                    .content(fallbackJson)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+            designGenerationPublisher.publishStageCompleted(designId.toString(), stageName, progress, fallbackJson);
+            log.info("DesignId={} stage={} completed with fallback output", designId, stageName);
+            return fallback;
+        }
+    }
+
+    private DesignStageResult executeTaskBreakdownStageWithFallback(
+            UUID designId,
+            DesignStageResult hld,
+            DesignStageResult componentBreakdown,
+            DesignStageResult lld,
+            List<Component> components
+    ) {
+        final String stageName = "TASK_BREAKDOWN";
+        final int progress = 100;
+        designGenerationPublisher.publishStageStarted(designId.toString(), stageName, progress);
+        log.info("DesignId={} stage={} started", designId, stageName);
+        try {
+            DesignStageResult result = aiStageService.generateTaskBreakdown(hld, componentBreakdown, lld);
+            designGenerationPublisher.publishStageCompleted(designId.toString(), stageName, progress, result.getContent());
+            log.info("DesignId={} stage={} completed", designId, stageName);
+            return result;
+        } catch (Exception ex) {
+            log.warn("DesignId={} stage={} failed. Falling back to deterministic task breakdown.", designId, stageName, ex);
+            designGenerationPublisher.publishStageFailed(designId.toString(), stageName, ex.getMessage());
+            List<TaskBreakdownItem> fallbackItems = buildFallbackTaskBreakdown(components);
+            String fallbackJson = toJsonSafely(Map.of("task_breakdown", fallbackItems), "{\"task_breakdown\":[]}");
+            DesignStageResult fallback = DesignStageResult.builder()
+                    .stageName(stageName)
+                    .content(fallbackJson)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+            designGenerationPublisher.publishStageCompleted(designId.toString(), stageName, progress, fallbackJson);
+            log.info("DesignId={} stage={} completed with fallback output", designId, stageName);
+            return fallback;
+        }
+    }
+
+    private String toJsonSafely(Object value, String fallbackJson) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException ex) {
+            log.warn("Failed to serialize fallback object to JSON", ex);
+            return fallbackJson;
+        }
     }
 
     private void appendSection(StringBuilder builder, String title, String content) {

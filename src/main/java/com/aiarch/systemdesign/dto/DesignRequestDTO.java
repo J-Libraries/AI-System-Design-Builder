@@ -35,4 +35,22 @@ public class DesignRequestDTO {
 
     @NotNull(message = "Scale is required")
     private DesignScale scale;
+
+    @NotNull(message = "Target platform is required")
+    private TargetPlatform targetPlatform;
+
+    @NotNull(message = "Design domain is required")
+    private DesignDomain designDomain;
+
+    @NotBlank(message = "Technology stack choice is required")
+    private String techStackChoice;
+
+    @NotBlank(message = "Database choice is required")
+    private String databaseChoice;
+
+    @NotBlank(message = "Server type is required")
+    private String serverType;
+
+    @NotBlank(message = "Container strategy is required")
+    private String containerStrategy;
 }

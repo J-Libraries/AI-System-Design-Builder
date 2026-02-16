@@ -18,4 +18,10 @@ public interface AIStageService {
     DesignStageResult generateFailureHandling(DesignStageResult hld);
 
     DesignStageResult generateDiagramMetadata(DesignStageResult hld, DesignStageResult lld);
+
+    DesignStageResult generateTaskBreakdown(
+            DesignStageResult hld,
+            DesignStageResult componentBreakdown,
+            DesignStageResult lld
+    );
 }

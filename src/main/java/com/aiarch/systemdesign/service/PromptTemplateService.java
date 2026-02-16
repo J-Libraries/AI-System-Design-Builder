@@ -18,5 +18,7 @@ public interface PromptTemplateService {
 
     String diagramMetadataPrompt(String hldJson, String lldJson);
 
+    String taskBreakdownPrompt(String hldJson, String componentBreakdownJson, String lldJson);
+
     String invalidJsonRetrySuffix();
 }
