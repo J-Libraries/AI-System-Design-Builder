@@ -34,7 +34,7 @@ public class AIStageServiceImpl implements AIStageService {
         return runStage(
                 "HLD",
                 promptTemplateService.hldPrompt(request),
-                Set.of("architecture_style", "services", "databases", "entry_points", "assumptions")
+                Set.of("overview", "assumptions", "capacity_estimation", "hld", "api_contracts", "database_schemas", "tradeoffs")
         );
     }
 
@@ -52,7 +52,7 @@ public class AIStageServiceImpl implements AIStageService {
         return runStage(
                 "LLD",
                 promptTemplateService.lldPrompt(componentBreakdown.getContent()),
-                Set.of("modules")
+                Set.of("lld")
         );
     }
 
@@ -61,7 +61,7 @@ public class AIStageServiceImpl implements AIStageService {
         return runStage(
                 "DATA_FLOW",
                 promptTemplateService.dataFlowPrompt(hld.getContent(), lld.getContent()),
-                Set.of("scenarios")
+                Set.of("data_flow_scenarios")
         );
     }
 
@@ -70,7 +70,7 @@ public class AIStageServiceImpl implements AIStageService {
         return runStage(
                 "SCALING_STRATEGY",
                 promptTemplateService.scalingStrategyPrompt(hld.getContent()),
-                Set.of("horizontal_scaling", "vertical_scaling", "partitioning_strategy", "capacity_checkpoints")
+                Set.of("scaling_strategy")
         );
     }
 
@@ -79,7 +79,7 @@ public class AIStageServiceImpl implements AIStageService {
         return runStage(
                 "FAILURE_HANDLING",
                 promptTemplateService.failureHandlingPrompt(hld.getContent()),
-                Set.of("failure_modes", "resilience_patterns")
+                Set.of("failure_handling")
         );
     }
 

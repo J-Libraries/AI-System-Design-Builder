@@ -36,8 +36,8 @@ public class SystemDesign implements Persistable<UUID> {
     private Integer version;
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(nullable = false, columnDefinition = "jsonb")
-    private JsonNode fullDesignJson;
+    @Column(name = "document_json", nullable = false, columnDefinition = "jsonb")
+    private JsonNode documentJson;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;

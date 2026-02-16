@@ -24,8 +24,7 @@ public class DesignRequestDTO {
     @NotEmpty(message = "Functional requirements are required")
     private List<@NotBlank(message = "Functional requirement cannot be blank") String> functionalRequirements;
 
-    @NotEmpty(message = "Non-functional requirements are required")
-    private List<@NotBlank(message = "Non-functional requirement cannot be blank") String> nonFunctionalRequirements;
+    private List<String> nonFunctionalRequirements;
 
     @NotNull(message = "Expected DAU is required")
     @Positive(message = "Expected DAU must be greater than 0")

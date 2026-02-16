@@ -22,16 +22,35 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema:
                 {
-                  "architecture_style": "string",
-                  "services": [{"name":"string","type":"string","description":"string"}],
-                  "databases": [{"name":"string","type":"string","purpose":"string"}],
-                  "entry_points": [{"name":"string","protocol":"string"}],
-                  "assumptions": ["string"]
+                  "overview": "string",
+                  "assumptions": ["string"],
+                  "capacity_estimation": "string",
+                  "hld": "string",
+                  "api_contracts": [
+                    {
+                      "name": "string",
+                      "method": "string",
+                      "path": "string",
+                      "request_schema": "string",
+                      "response_schema": "string",
+                      "error_codes": ["string"]
+                    }
+                  ],
+                  "database_schemas": [
+                    {
+                      "entity_name": "string",
+                      "fields": ["string"],
+                      "indexes": ["string"]
+                    }
+                  ],
+                  "tradeoffs": "string"
                 }
                 """.formatted(
                 request.getProductName(),
                 request.getFunctionalRequirements(),
-                request.getNonFunctionalRequirements(),
+                request.getNonFunctionalRequirements() == null || request.getNonFunctionalRequirements().isEmpty()
+                        ? "Not specified"
+                        : request.getNonFunctionalRequirements(),
                 request.getExpectedDAU(),
                 request.getRegion(),
                 request.getScale()
@@ -49,7 +68,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 Follow this exact schema:
                 {
                   "components": [
-                    {"name":"string","responsibilities":["string"],"depends_on":["string"],"apis":["string"]}
+                    {"name":"string","type":"string","responsibility":"string","dependencies":["string"]}
                   ]
                 }
                 """.formatted(hldJson);
@@ -65,8 +84,14 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema:
                 {
-                  "modules": [
-                    {"component":"string","classes":["string"],"contracts":["string"],"storage_patterns":["string"]}
+                  "lld": [
+                    {
+                      "component_name":"string",
+                      "module_description":"string",
+                      "classes":["string"],
+                      "interfaces":["string"],
+                      "sequence":["string"]
+                    }
                   ]
                 }
                 """.formatted(componentBreakdownJson);
@@ -84,8 +109,8 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema:
                 {
-                  "scenarios": [
-                    {"name":"string","steps":["string"],"latency_budget_ms":"number"}
+                  "data_flow_scenarios": [
+                    {"name":"string","trigger":"string","steps":["string"],"expected_outcome":"string"}
                   ]
                 }
                 """.formatted(hldJson, lldJson);
@@ -101,10 +126,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema:
                 {
-                  "horizontal_scaling": ["string"],
-                  "vertical_scaling": ["string"],
-                  "partitioning_strategy": ["string"],
-                  "capacity_checkpoints": ["string"]
+                  "scaling_strategy": "string"
                 }
                 """.formatted(hldJson);
     }
@@ -119,10 +141,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema:
                 {
-                  "failure_modes": [
-                    {"failure":"string","detection":"string","mitigation":"string","fallback":"string"}
-                  ],
-                  "resilience_patterns": ["string"]
+                  "failure_handling": "string"
                 }
                 """.formatted(hldJson);
     }

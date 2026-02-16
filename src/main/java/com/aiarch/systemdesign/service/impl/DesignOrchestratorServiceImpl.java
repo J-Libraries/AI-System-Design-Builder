@@ -2,15 +2,24 @@ package com.aiarch.systemdesign.service.impl;
 
 import com.aiarch.systemdesign.dto.DesignRequestDTO;
 import com.aiarch.systemdesign.dto.DesignStageResult;
-import com.aiarch.systemdesign.dto.FinalDesignResponse;
+import com.aiarch.systemdesign.dto.document.ApiContract;
+import com.aiarch.systemdesign.dto.document.Component;
+import com.aiarch.systemdesign.dto.document.ComponentLLD;
+import com.aiarch.systemdesign.dto.document.DataFlowScenario;
+import com.aiarch.systemdesign.dto.document.DatabaseSchema;
+import com.aiarch.systemdesign.dto.document.DiagramMetadata;
+import com.aiarch.systemdesign.dto.document.SystemDesignDocument;
+import com.aiarch.systemdesign.mapper.SystemDesignDocumentMapper;
 import com.aiarch.systemdesign.model.SystemDesign;
 import com.aiarch.systemdesign.repository.SystemDesignRepository;
 import com.aiarch.systemdesign.service.AIStageService;
 import com.aiarch.systemdesign.service.DesignGenerationPublisher;
 import com.aiarch.systemdesign.service.DesignOrchestratorService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -27,10 +36,17 @@ import org.springframework.transaction.annotation.Transactional;
 public class DesignOrchestratorServiceImpl implements DesignOrchestratorService {
 
     private static final Logger log = LoggerFactory.getLogger(DesignOrchestratorServiceImpl.class);
+    private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() { };
+    private static final TypeReference<List<Component>> COMPONENT_LIST_TYPE = new TypeReference<>() { };
+    private static final TypeReference<List<ComponentLLD>> COMPONENT_LLD_LIST_TYPE = new TypeReference<>() { };
+    private static final TypeReference<List<ApiContract>> API_CONTRACT_LIST_TYPE = new TypeReference<>() { };
+    private static final TypeReference<List<DatabaseSchema>> DATABASE_SCHEMA_LIST_TYPE = new TypeReference<>() { };
+    private static final TypeReference<List<DataFlowScenario>> DATA_FLOW_LIST_TYPE = new TypeReference<>() { };
 
     private final AIStageService aiStageService;
     private final SystemDesignRepository systemDesignRepository;
     private final ObjectMapper objectMapper;
+    private final SystemDesignDocumentMapper documentMapper;
     private final DesignGenerationPublisher designGenerationPublisher;
 
     @Qualifier("orchestratorTaskExecutor")
@@ -47,12 +63,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         );
 
         try {
-            DesignStageResult hld = executeStage(
-                    designId,
-                    "HLD",
-                    10,
-                    () -> aiStageService.generateHLD(request)
-            );
+            DesignStageResult hld = executeStage(designId, "HLD", 10, () -> aiStageService.generateHLD(request));
             DesignStageResult componentBreakdown = executeStage(
                     designId,
                     "COMPONENT_BREAKDOWN",
@@ -100,14 +111,15 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             DesignStageResult scaling = scalingFuture.join();
             DesignStageResult failureHandling = failureFuture.join();
 
-            FinalDesignResponse response = FinalDesignResponse.builder()
-                    .hld(readJson(hld.getContent()))
-                    .lld(readJson(lld.getContent()))
-                    .dataFlow(readJson(dataFlow.getContent()))
-                    .scalingStrategy(readJson(scaling.getContent()))
-                    .failureHandling(readJson(failureHandling.getContent()))
-                    .diagramMetadata(readJson(diagramMetadata.getContent()))
-                    .build();
+            SystemDesignDocument document = buildDocument(
+                    hld.getContent(),
+                    componentBreakdown.getContent(),
+                    lld.getContent(),
+                    dataFlow.getContent(),
+                    scaling.getContent(),
+                    failureHandling.getContent(),
+                    diagramMetadata.getContent()
+            );
 
             int nextVersion = systemDesignRepository.findTopByProductNameOrderByVersionDesc(request.getProductName())
                     .map(existing -> existing.getVersion() + 1)
@@ -117,9 +129,15 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     .id(designId)
                     .productName(request.getProductName())
                     .version(nextVersion)
-                    .fullDesignJson(buildPersistedJson(response, componentBreakdown))
+                    .documentJson(documentMapper.toJsonNode(document))
                     .build();
             systemDesignRepository.save(systemDesign);
+            designGenerationPublisher.publishStageCompleted(
+                    designId.toString(),
+                    "ORCHESTRATION",
+                    100,
+                    documentMapper.toJsonNode(document).toString()
+            );
 
             log.info(
                     "Completed orchestration for designId={} product={} version={}",
@@ -130,29 +148,82 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             return CompletableFuture.completedFuture(null);
         } catch (Exception ex) {
             log.error("Design orchestration failed for designId={}", designId, ex);
-            designGenerationPublisher.publishStageFailed(designId.toString(), "ORCHESTRATION", ex.getMessage());
+            designGenerationPublisher.publishStageFailed(
+                    designId.toString(),
+                    "ORCHESTRATION",
+                    ex.getClass().getSimpleName() + ": " + (ex.getMessage() == null ? "Unknown error" : ex.getMessage())
+            );
             return CompletableFuture.failedFuture(ex);
         }
+    }
+
+    private SystemDesignDocument buildDocument(
+            String hldJson,
+            String componentJson,
+            String lldJson,
+            String dataFlowJson,
+            String scalingJson,
+            String failureJson,
+            String diagramJson
+    ) {
+        JsonNode hldNode = readJson(hldJson);
+        JsonNode componentNode = readJson(componentJson);
+        JsonNode lldNode = readJson(lldJson);
+        JsonNode dataFlowNode = readJson(dataFlowJson);
+        JsonNode scalingNode = readJson(scalingJson);
+        JsonNode failureNode = readJson(failureJson);
+        JsonNode diagramNode = readJson(diagramJson);
+
+        return SystemDesignDocument.builder()
+                .overview(getText(hldNode, "overview"))
+                .assumptions(readList(hldNode, "assumptions", STRING_LIST_TYPE))
+                .capacityEstimation(getText(hldNode, "capacity_estimation"))
+                .hld(getText(hldNode, "hld"))
+                .components(readList(componentNode, "components", COMPONENT_LIST_TYPE))
+                .lld(readList(lldNode, "lld", COMPONENT_LLD_LIST_TYPE))
+                .apiContracts(readList(hldNode, "api_contracts", API_CONTRACT_LIST_TYPE))
+                .databaseSchemas(readList(hldNode, "database_schemas", DATABASE_SCHEMA_LIST_TYPE))
+                .dataFlowScenarios(readList(dataFlowNode, "data_flow_scenarios", DATA_FLOW_LIST_TYPE))
+                .scalingStrategy(getText(scalingNode, "scaling_strategy"))
+                .failureHandling(getText(failureNode, "failure_handling"))
+                .tradeoffs(getText(hldNode, "tradeoffs"))
+                .diagramMetadata(readObject(diagramNode, DiagramMetadata.class))
+                .build();
     }
 
     private JsonNode readJson(String rawJson) {
         try {
             return objectMapper.readTree(rawJson);
-        } catch (Exception ex) {
+        } catch (JsonProcessingException ex) {
             throw new IllegalStateException("Failed to parse generated stage JSON", ex);
         }
     }
 
-    private JsonNode buildPersistedJson(FinalDesignResponse response, DesignStageResult componentBreakdown) {
-        ObjectNode root = objectMapper.createObjectNode();
-        root.set("hld", response.getHld());
-        root.set("component_breakdown", readJson(componentBreakdown.getContent()));
-        root.set("lld", response.getLld());
-        root.set("data_flow", response.getDataFlow());
-        root.set("scaling_strategy", response.getScalingStrategy());
-        root.set("failure_handling", response.getFailureHandling());
-        root.set("diagram_metadata", response.getDiagramMetadata());
-        return root;
+    private String getText(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        return value.isMissingNode() || value.isNull() ? "" : value.asText("");
+    }
+
+    private <T> List<T> readList(JsonNode node, String field, TypeReference<List<T>> typeReference) {
+        JsonNode value = node.path(field);
+        if (value.isMissingNode() || value.isNull()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.convertValue(value, typeReference);
+        } catch (IllegalArgumentException ex) {
+            log.warn("Failed to map section={} to target list. Falling back to empty list.", field, ex);
+            return List.of();
+        }
+    }
+
+    private <T> T readObject(JsonNode node, Class<T> clazz) {
+        try {
+            return objectMapper.convertValue(node, clazz);
+        } catch (IllegalArgumentException ex) {
+            log.warn("Failed to map section object to {}. Falling back to null.", clazz.getSimpleName(), ex);
+            return null;
+        }
     }
 
     private DesignStageResult executeStage(
