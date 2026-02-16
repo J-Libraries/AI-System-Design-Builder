@@ -8,6 +8,61 @@ import org.springframework.stereotype.Service;
 public class PromptTemplateServiceImpl implements PromptTemplateService {
 
     @Override
+    public String sowPrompt(DesignRequestDTO request) {
+        return """
+                You are a principal solutions architect and delivery lead.
+                Generate a professional Scope of Work (SOW) for this project.
+                Product Name: %s
+                Functional Requirements: %s
+                Non-Functional Requirements: %s
+                Expected DAU: %s
+                Region: %s
+                Scale: %s
+                Target Platform: %s
+                Design Domain: %s
+                Preferred Stack: %s
+                Preferred Database: %s
+                Server Type: %s
+                Container Strategy: %s
+
+                Requirements:
+                1) Write an implementation-focused SOW suitable for client/engineering alignment.
+                2) Include scope boundaries, deliverables, milestones, acceptance criteria, and risks.
+                3) Be concrete and avoid generic statements.
+
+                Return ONLY valid JSON. No markdown. No comments. No additional text.
+                Follow this exact schema:
+                {
+                  "sow": {
+                    "project_summary": "string",
+                    "in_scope": ["string"],
+                    "out_of_scope": ["string"],
+                    "deliverables": ["string"],
+                    "milestones": ["string"],
+                    "acceptance_criteria": ["string"],
+                    "risks": ["string"],
+                    "assumptions": ["string"]
+                  }
+                }
+                """.formatted(
+                request.getProductName(),
+                request.getFunctionalRequirements(),
+                request.getNonFunctionalRequirements() == null || request.getNonFunctionalRequirements().isEmpty()
+                        ? "Not specified"
+                        : request.getNonFunctionalRequirements(),
+                request.getExpectedDAU(),
+                request.getRegion(),
+                request.getScale(),
+                request.getTargetPlatform(),
+                request.getDesignDomain(),
+                request.getTechStackChoice(),
+                request.getDatabaseChoice(),
+                request.getServerType(),
+                request.getContainerStrategy()
+        );
+    }
+
+    @Override
     public String hldPrompt(DesignRequestDTO request) {
         return """
                 You are a principal system architect.
@@ -309,6 +364,41 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                       "hours_experienced_developer": 0,
                       "hours_mid_level_developer": 0,
                       "hours_fresher": 0
+                    }
+                  ]
+                }
+                """.formatted(hldJson, componentBreakdownJson, lldJson);
+    }
+
+    @Override
+    public String wireframePrompt(String hldJson, String componentBreakdownJson, String lldJson) {
+        return """
+                Generate implementation-grade product wireframes from design context.
+                HLD_JSON:
+                %s
+                COMPONENT_BREAKDOWN_JSON:
+                %s
+                LLD_JSON:
+                %s
+
+                Requirements:
+                1) Provide wireframe screens in build order from onboarding/core flows to admin/ops screens.
+                2) For each screen include purpose, layout description, UI components, interactions, and API bindings.
+                3) Ensure wireframes reflect mobile/web context where relevant.
+
+                Return ONLY valid JSON. No markdown. No comments. No additional text.
+                Follow this exact schema:
+                {
+                  "wireframe_summary": "string",
+                  "screens": [
+                    {
+                      "screen_name": "string",
+                      "platform": "string",
+                      "purpose": "string",
+                      "layout_description": "string",
+                      "ui_components": ["string"],
+                      "interactions": ["string"],
+                      "api_bindings": ["string"]
                     }
                   ]
                 }

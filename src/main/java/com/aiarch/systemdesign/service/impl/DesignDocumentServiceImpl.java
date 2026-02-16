@@ -9,6 +9,8 @@ import com.aiarch.systemdesign.dto.document.DiagramEdge;
 import com.aiarch.systemdesign.dto.document.DiagramNode;
 import com.aiarch.systemdesign.dto.document.DiagramMetadata;
 import com.aiarch.systemdesign.dto.document.SystemDesignDocument;
+import com.aiarch.systemdesign.dto.document.TaskBreakdownItem;
+import com.aiarch.systemdesign.dto.document.TaskBreakdownTask;
 import com.aiarch.systemdesign.exception.ResourceNotFoundException;
 import com.aiarch.systemdesign.mapper.SystemDesignDocumentMapper;
 import com.aiarch.systemdesign.model.SystemDesign;
@@ -31,6 +33,7 @@ import java.awt.RenderingHints;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -91,6 +94,7 @@ public class DesignDocumentServiceImpl implements DesignDocumentService {
         pdfDocument.open();
         try {
             addTitlePage(pdfDocument, design);
+            addSection(pdfDocument, "Scope of Work", documentModel.getSow());
             addSection(pdfDocument, "Overview", documentModel.getOverview());
             addListSection(pdfDocument, "Assumptions", documentModel.getAssumptions());
             addSection(pdfDocument, "Capacity Estimation", documentModel.getCapacityEstimation());
@@ -111,6 +115,85 @@ public class DesignDocumentServiceImpl implements DesignDocumentService {
         }
 
         return outputStream.toByteArray();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public byte[] exportSowPdf(UUID designId) {
+        SystemDesign design = systemDesignRepository.findById(designId)
+                .orElseThrow(() -> new ResourceNotFoundException("System design not found with id: " + designId));
+        SystemDesignDocument documentModel = documentMapper.fromJsonNode(design.getDocumentJson());
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        Document pdfDocument = new Document();
+        PdfWriter writer;
+        try {
+            writer = PdfWriter.getInstance(pdfDocument, outputStream);
+        } catch (DocumentException ex) {
+            throw new IllegalStateException("Failed to initialize PDF writer", ex);
+        }
+        writer.setPageEvent(new PageNumberEventHandler());
+
+        pdfDocument.open();
+        try {
+            Paragraph title = new Paragraph("Scope of Work (SOW)", TITLE_FONT);
+            title.setSpacingAfter(16f);
+            pdfDocument.add(title);
+            pdfDocument.add(new Paragraph("Product: " + design.getProductName(), SUBTITLE_FONT));
+            pdfDocument.add(new Paragraph("Version: " + design.getVersion(), SUBTITLE_FONT));
+            pdfDocument.add(new Paragraph("Generated On: " + design.getCreatedAt(), BODY_FONT));
+            pdfDocument.add(Chunk.NEWLINE);
+            addSection(pdfDocument, "Scope of Work", documentModel.getSow());
+        } catch (DocumentException ex) {
+            throw new IllegalStateException("Failed to generate SOW PDF", ex);
+        } finally {
+            pdfDocument.close();
+        }
+
+        return outputStream.toByteArray();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public byte[] exportTaskBreakdownCsv(UUID designId) {
+        SystemDesign design = systemDesignRepository.findById(designId)
+                .orElseThrow(() -> new ResourceNotFoundException("System design not found with id: " + designId));
+        SystemDesignDocument documentModel = documentMapper.fromJsonNode(design.getDocumentJson());
+        List<TaskBreakdownItem> breakdown = documentModel.getTaskBreakdown();
+
+        StringBuilder csv = new StringBuilder();
+        csv.append("module_name,implementation_approach,task_name,task_description,hours_experienced_developer,hours_mid_level_developer,hours_fresher\n");
+        if (breakdown != null) {
+            for (TaskBreakdownItem item : breakdown) {
+                if (item == null) {
+                    continue;
+                }
+                List<TaskBreakdownTask> tasks = item.getTasks();
+                if (tasks == null || tasks.isEmpty()) {
+                    csv.append(csvValue(item.getModuleName())).append(",")
+                            .append(csvValue(item.getImplementationApproach())).append(",")
+                            .append(csvValue("")).append(",")
+                            .append(csvValue("")).append(",")
+                            .append(item.getHoursExperiencedDeveloper() == null ? 0 : item.getHoursExperiencedDeveloper()).append(",")
+                            .append(item.getHoursMidLevelDeveloper() == null ? 0 : item.getHoursMidLevelDeveloper()).append(",")
+                            .append(item.getHoursFresher() == null ? 0 : item.getHoursFresher()).append("\n");
+                    continue;
+                }
+                for (TaskBreakdownTask task : tasks) {
+                    if (task == null) {
+                        continue;
+                    }
+                    csv.append(csvValue(item.getModuleName())).append(",")
+                            .append(csvValue(item.getImplementationApproach())).append(",")
+                            .append(csvValue(task.getTaskName())).append(",")
+                            .append(csvValue(task.getDescription())).append(",")
+                            .append(task.getHoursExperiencedDeveloper() == null ? 0 : task.getHoursExperiencedDeveloper()).append(",")
+                            .append(task.getHoursMidLevelDeveloper() == null ? 0 : task.getHoursMidLevelDeveloper()).append(",")
+                            .append(task.getHoursFresher() == null ? 0 : task.getHoursFresher()).append("\n");
+                }
+            }
+        }
+        return csv.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     private void addTitlePage(Document document, SystemDesign design) throws DocumentException {
@@ -246,6 +329,11 @@ public class DesignDocumentServiceImpl implements DesignDocumentService {
 
     private String safe(String value) {
         return value == null || value.isBlank() ? "N/A" : value;
+    }
+
+    private String csvValue(String value) {
+        String sanitized = value == null ? "" : value.replace("\"", "\"\"");
+        return "\"" + sanitized + "\"";
     }
 
     private List<String> safeList(List<String> values) {

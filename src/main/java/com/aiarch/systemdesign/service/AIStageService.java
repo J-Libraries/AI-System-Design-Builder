@@ -5,6 +5,8 @@ import com.aiarch.systemdesign.dto.DesignStageResult;
 
 public interface AIStageService {
 
+    DesignStageResult generateSow(DesignRequestDTO request);
+
     DesignStageResult generateHLD(DesignRequestDTO request);
 
     DesignStageResult generateComponentBreakdown(DesignStageResult hld);
@@ -20,6 +22,12 @@ public interface AIStageService {
     DesignStageResult generateDiagramMetadata(DesignStageResult hld, DesignStageResult lld);
 
     DesignStageResult generateTaskBreakdown(
+            DesignStageResult hld,
+            DesignStageResult componentBreakdown,
+            DesignStageResult lld
+    );
+
+    DesignStageResult generateWireframe(
             DesignStageResult hld,
             DesignStageResult componentBreakdown,
             DesignStageResult lld

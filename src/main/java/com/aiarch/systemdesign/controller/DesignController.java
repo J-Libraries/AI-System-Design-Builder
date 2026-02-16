@@ -31,6 +31,7 @@ public class DesignController {
     @PostMapping("/generate")
     public ResponseEntity<DesignGenerationResponse> generateDesign(@Valid @RequestBody DesignRequestDTO request) {
         UUID designId = UUID.randomUUID();
+        designOrchestratorService.initializeDesign(designId, request);
         designOrchestratorService.generateDesignAsync(designId, request);
         DesignGenerationResponse response = DesignGenerationResponse.builder()
                 .designId(designId)
@@ -59,5 +60,23 @@ public class DesignController {
                 .contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=system-design-" + designId + ".pdf")
                 .body(pdfData);
+    }
+
+    @GetMapping("/{id}/export/sow/pdf")
+    public ResponseEntity<byte[]> exportSowPdf(@PathVariable("id") UUID designId) {
+        byte[] pdfData = designDocumentService.exportSowPdf(designId);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=sow-" + designId + ".pdf")
+                .body(pdfData);
+    }
+
+    @GetMapping("/{id}/export/task-breakdown/csv")
+    public ResponseEntity<byte[]> exportTaskBreakdownCsv(@PathVariable("id") UUID designId) {
+        byte[] csvData = designDocumentService.exportTaskBreakdownCsv(designId);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("text/csv"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=task-breakdown-" + designId + ".csv")
+                .body(csvData);
     }
 }

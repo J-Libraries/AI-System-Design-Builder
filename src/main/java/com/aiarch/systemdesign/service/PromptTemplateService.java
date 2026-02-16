@@ -4,6 +4,8 @@ import com.aiarch.systemdesign.dto.DesignRequestDTO;
 
 public interface PromptTemplateService {
 
+    String sowPrompt(DesignRequestDTO request);
+
     String hldPrompt(DesignRequestDTO request);
 
     String componentBreakdownPrompt(String hldJson);
@@ -19,6 +21,8 @@ public interface PromptTemplateService {
     String diagramMetadataPrompt(String hldJson, String lldJson);
 
     String taskBreakdownPrompt(String hldJson, String componentBreakdownJson, String lldJson);
+
+    String wireframePrompt(String hldJson, String componentBreakdownJson, String lldJson);
 
     String invalidJsonRetrySuffix();
 }

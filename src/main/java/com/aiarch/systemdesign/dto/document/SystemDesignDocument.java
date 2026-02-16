@@ -19,6 +19,7 @@ import lombok.Setter;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class SystemDesignDocument {
 
+    private String sow;
     private String overview;
     private List<String> assumptions;
     private String capacityEstimation;
@@ -32,5 +33,7 @@ public class SystemDesignDocument {
     private String failureHandling;
     private String tradeoffs;
     private List<TaskBreakdownItem> taskBreakdown;
+    private String wireframeSummary;
+    private List<WireframeScreen> wireframeScreens;
     private DiagramMetadata diagramMetadata;
 }

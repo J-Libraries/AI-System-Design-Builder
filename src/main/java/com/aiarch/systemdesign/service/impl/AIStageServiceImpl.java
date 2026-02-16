@@ -30,6 +30,15 @@ public class AIStageServiceImpl implements AIStageService {
     private final ObjectMapper objectMapper;
 
     @Override
+    public DesignStageResult generateSow(DesignRequestDTO request) {
+        return runStage(
+                "SOW",
+                promptTemplateService.sowPrompt(request),
+                Set.of("sow")
+        );
+    }
+
+    @Override
     public DesignStageResult generateHLD(DesignRequestDTO request) {
         return runStage(
                 "HLD",
@@ -118,6 +127,23 @@ public class AIStageServiceImpl implements AIStageService {
                         lld.getContent()
                 ),
                 Set.of("task_breakdown")
+        );
+    }
+
+    @Override
+    public DesignStageResult generateWireframe(
+            DesignStageResult hld,
+            DesignStageResult componentBreakdown,
+            DesignStageResult lld
+    ) {
+        return runStage(
+                "WIREFRAME",
+                promptTemplateService.wireframePrompt(
+                        hld.getContent(),
+                        componentBreakdown.getContent(),
+                        lld.getContent()
+                ),
+                Set.of("wireframe_summary", "screens")
         );
     }
 

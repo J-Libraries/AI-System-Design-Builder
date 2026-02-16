@@ -10,4 +10,8 @@ public interface DesignDocumentService {
     SystemDesignDocument updateDocument(UUID designId, SystemDesignDocument document);
 
     byte[] exportDocumentPdf(UUID designId);
+
+    byte[] exportSowPdf(UUID designId);
+
+    byte[] exportTaskBreakdownCsv(UUID designId);
 }

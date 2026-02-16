@@ -6,5 +6,7 @@ import java.util.concurrent.CompletableFuture;
 
 public interface DesignOrchestratorService {
 
+    void initializeDesign(UUID designId, DesignRequestDTO request);
+
     CompletableFuture<Void> generateDesignAsync(UUID designId, DesignRequestDTO request);
 }

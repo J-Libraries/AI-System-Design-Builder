@@ -36,6 +36,13 @@ public class SystemDesignMigrationService {
                        AND full_design_json IS NOT NULL
                     """
             );
+            // Legacy column is no longer written by the application. Keep it nullable so inserts don't fail.
+            jdbcTemplate.execute(
+                    """
+                    ALTER TABLE system_designs
+                    ALTER COLUMN full_design_json DROP NOT NULL
+                    """
+            );
             log.info("System design migration complete. Migrated {} records from full_design_json to document_json", updated);
         }
     }
