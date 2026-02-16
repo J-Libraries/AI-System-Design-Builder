@@ -16,6 +16,7 @@ public class SystemDesignMigrationService {
 
     public void migrateLegacyJsonColumnIfNeeded() {
         jdbcTemplate.execute("ALTER TABLE system_designs ADD COLUMN IF NOT EXISTS document_json jsonb");
+        jdbcTemplate.execute("ALTER TABLE system_designs ADD COLUMN IF NOT EXISTS request_json jsonb");
 
         Integer hasLegacyColumn = jdbcTemplate.queryForObject(
                 """

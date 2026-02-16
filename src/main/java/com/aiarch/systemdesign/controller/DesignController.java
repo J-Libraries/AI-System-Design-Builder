@@ -2,16 +2,20 @@ package com.aiarch.systemdesign.controller;
 
 import com.aiarch.systemdesign.dto.DesignRequestDTO;
 import com.aiarch.systemdesign.dto.DesignGenerationResponse;
+import com.aiarch.systemdesign.dto.DesignSummaryDTO;
 import com.aiarch.systemdesign.dto.document.SystemDesignDocument;
 import com.aiarch.systemdesign.service.DesignDocumentService;
+import com.aiarch.systemdesign.service.DesignManagementService;
 import com.aiarch.systemdesign.service.DesignOrchestratorService;
 import jakarta.validation.Valid;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,6 +31,12 @@ public class DesignController {
 
     private final DesignOrchestratorService designOrchestratorService;
     private final DesignDocumentService designDocumentService;
+    private final DesignManagementService designManagementService;
+
+    @GetMapping
+    public ResponseEntity<List<DesignSummaryDTO>> listDesigns() {
+        return ResponseEntity.ok(designManagementService.listDesigns());
+    }
 
     @PostMapping("/generate")
     public ResponseEntity<DesignGenerationResponse> generateDesign(@Valid @RequestBody DesignRequestDTO request) {
@@ -38,6 +48,31 @@ public class DesignController {
                 .status("PROCESSING")
                 .build();
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
+    }
+
+    @PostMapping("/{id}/regenerate")
+    public ResponseEntity<DesignGenerationResponse> regenerateDesign(
+            @PathVariable("id") UUID designId,
+            @Valid @RequestBody DesignRequestDTO request
+    ) {
+        designOrchestratorService.initializeDesign(designId, request);
+        designOrchestratorService.generateDesignAsync(designId, request);
+        DesignGenerationResponse response = DesignGenerationResponse.builder()
+                .designId(designId)
+                .status("PROCESSING")
+                .build();
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
+    }
+
+    @GetMapping("/{id}/request")
+    public ResponseEntity<DesignRequestDTO> getDesignRequest(@PathVariable("id") UUID designId) {
+        return ResponseEntity.ok(designManagementService.getDesignRequest(designId));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteDesign(@PathVariable("id") UUID designId) {
+        designManagementService.deleteDesign(designId);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/{id}/document")

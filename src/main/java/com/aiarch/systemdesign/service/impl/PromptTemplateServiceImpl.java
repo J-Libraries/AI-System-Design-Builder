@@ -7,11 +7,28 @@ import org.springframework.stereotype.Service;
 @Service
 public class PromptTemplateServiceImpl implements PromptTemplateService {
 
+    private boolean isNoneSelected(String value) {
+        if (value == null) {
+            return true;
+        }
+        String normalized = value.trim().toLowerCase();
+        return normalized.isBlank()
+                || normalized.equals("none")
+                || normalized.equals("none (not used)")
+                || normalized.equals("not used")
+                || normalized.equals("n/a");
+    }
+
     @Override
     public String sowPrompt(DesignRequestDTO request) {
+        String techStack = isNoneSelected(request.getTechStackChoice()) ? "Not used" : request.getTechStackChoice();
+        String database = isNoneSelected(request.getDatabaseChoice()) ? "Not used" : request.getDatabaseChoice();
+        String serverType = isNoneSelected(request.getServerType()) ? "Not used" : request.getServerType();
+        String containerStrategy = isNoneSelected(request.getContainerStrategy()) ? "Not used" : request.getContainerStrategy();
+
         return """
                 You are a principal solutions architect and delivery lead.
-                Generate a professional Scope of Work (SOW) for this project.
+                Generate a professional, highly detailed Scope of Work (SOW) for this project.
                 Product Name: %s
                 Functional Requirements: %s
                 Non-Functional Requirements: %s
@@ -24,19 +41,46 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 Preferred Database: %s
                 Server Type: %s
                 Container Strategy: %s
+                Stack Enabled: %s
+                Database Enabled: %s
+                Server Enabled: %s
+                Container Strategy Enabled: %s
 
                 Requirements:
-                1) Write an implementation-focused SOW suitable for client/engineering alignment.
-                2) Include scope boundaries, deliverables, milestones, acceptance criteria, and risks.
-                3) Be concrete and avoid generic statements.
+                1) Write an implementation-focused SOW suitable for client and engineering sign-off.
+                2) Be concrete and avoid generic filler text.
+                3) Cover scope boundaries, deliverables, milestones, dependencies, acceptance criteria, and risks.
+                4) Include measurable and testable statements.
+                5) Make it execution-ready for planning, staffing, and handoff.
+                6) Ensure depth:
+                   - project_summary should be 140-220 words
+                   - in_scope minimum 10 items
+                   - out_of_scope minimum 6 items
+                   - deliverables minimum 10 items
+                   - milestones minimum 8 items
+                   - acceptance_criteria minimum 10 items
+                   - risks minimum 8 items
+                   - assumptions minimum 8 items
+                7) milestone format should include phase, owner, and completion condition in one sentence.
+                8) acceptance_criteria should be objectively verifiable.
+                9) risks should include impact + mitigation in each item.
+                10) If any capability is marked as "Not used", do not include that capability in-scope or deliverables.
+                    Example: If server is not used, exclude server provisioning/ops deliverables.
+                11) Apply exclusion matrix strictly:
+                    - Preferred Stack = Not used => exclude backend/service implementation deliverables and API-specific implementation scope.
+                    - Preferred Database = Not used => exclude schema, migration, indexing, backup/restore deliverables.
+                    - Server Type = Not used => exclude VM/K8s/server provisioning, runtime operations, host sizing.
+                    - Container Strategy = Not used => exclude Docker/container build and orchestration deliverables.
 
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema:
                 {
                   "sow": {
                     "project_summary": "string",
+                    "business_objectives": ["string"],
                     "in_scope": ["string"],
                     "out_of_scope": ["string"],
+                    "dependencies": ["string"],
                     "deliverables": ["string"],
                     "milestones": ["string"],
                     "acceptance_criteria": ["string"],
@@ -55,15 +99,24 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 request.getScale(),
                 request.getTargetPlatform(),
                 request.getDesignDomain(),
-                request.getTechStackChoice(),
-                request.getDatabaseChoice(),
-                request.getServerType(),
-                request.getContainerStrategy()
+                techStack,
+                database,
+                serverType,
+                containerStrategy,
+                !isNoneSelected(request.getTechStackChoice()),
+                !isNoneSelected(request.getDatabaseChoice()),
+                !isNoneSelected(request.getServerType()),
+                !isNoneSelected(request.getContainerStrategy())
         );
     }
 
     @Override
     public String hldPrompt(DesignRequestDTO request) {
+        String techStack = isNoneSelected(request.getTechStackChoice()) ? "Not used" : request.getTechStackChoice();
+        String database = isNoneSelected(request.getDatabaseChoice()) ? "Not used" : request.getDatabaseChoice();
+        String serverType = isNoneSelected(request.getServerType()) ? "Not used" : request.getServerType();
+        String containerStrategy = isNoneSelected(request.getContainerStrategy()) ? "Not used" : request.getContainerStrategy();
+
         return """
                 You are a principal system architect.
                 Create a production-grade, in-depth high-level architecture for the following product.
@@ -79,6 +132,10 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 Preferred Database: %s
                 Server Type: %s
                 Container Strategy: %s
+                Stack Enabled: %s
+                Database Enabled: %s
+                Server Enabled: %s
+                Container Strategy Enabled: %s
 
                 Depth requirements:
                 1) Cover how EACH functional requirement is handled by specific components.
@@ -99,6 +156,13 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                    asset delivery, and observability.
                 10) If design domain is DEVOPS or SERVER_ARCHITECTURE, include deployment topology, CI/CD,
                    infra automation, runtime operations, security controls, and SLO governance.
+                11) If any capability is marked as "Not used", exclude related components, APIs, and strategy sections.
+                    Example: if database is not used, avoid database_schema entries and DB-specific components.
+                12) Apply exclusion matrix strictly:
+                    - Preferred Stack = Not used => do not include backend business services, backend-only API contracts, or service-runtime internals.
+                    - Preferred Database = Not used => do not include database_schemas entries or DB nodes/edges.
+                    - Server Type = Not used => avoid server topology, host sizing, and server provisioning details.
+                    - Container Strategy = Not used => avoid Docker/Kubernetes/container orchestration strategy details.
 
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema:
@@ -141,10 +205,14 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 request.getScale(),
                 request.getTargetPlatform(),
                 request.getDesignDomain(),
-                request.getTechStackChoice(),
-                request.getDatabaseChoice(),
-                request.getServerType(),
-                request.getContainerStrategy()
+                techStack,
+                database,
+                serverType,
+                containerStrategy,
+                !isNoneSelected(request.getTechStackChoice()),
+                !isNoneSelected(request.getDatabaseChoice()),
+                !isNoneSelected(request.getServerType()),
+                !isNoneSelected(request.getContainerStrategy())
         );
     }
 

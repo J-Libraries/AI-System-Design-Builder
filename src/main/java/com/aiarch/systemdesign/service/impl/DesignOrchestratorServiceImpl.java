@@ -78,7 +78,35 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
     @Override
     @Transactional
     public void initializeDesign(UUID designId, DesignRequestDTO request) {
-        SystemDesignDocument placeholderDocument = SystemDesignDocument.builder()
+        SystemDesignDocument placeholderDocument = buildPlaceholderDocument();
+        JsonNode requestSnapshot = objectMapper.valueToTree(request);
+
+        SystemDesign existingDesign = systemDesignRepository.findById(designId).orElse(null);
+        if (existingDesign != null) {
+            existingDesign.setProductName(request.getProductName());
+            existingDesign.setVersion(positiveOr(existingDesign.getVersion(), 0) + 1);
+            existingDesign.setRequestJson(requestSnapshot);
+            existingDesign.setDocumentJson(documentMapper.toJsonNode(placeholderDocument));
+            systemDesignRepository.save(existingDesign);
+            return;
+        }
+
+        int nextVersion = systemDesignRepository.findTopByProductNameOrderByVersionDesc(request.getProductName())
+                .map(existing -> existing.getVersion() + 1)
+                .orElse(1);
+
+        SystemDesign design = SystemDesign.builder()
+                .id(designId)
+                .productName(request.getProductName())
+                .version(nextVersion)
+                .requestJson(requestSnapshot)
+                .documentJson(documentMapper.toJsonNode(placeholderDocument))
+                .build();
+        systemDesignRepository.save(design);
+    }
+
+    private SystemDesignDocument buildPlaceholderDocument() {
+        return SystemDesignDocument.builder()
                 .sow("Scope of work generation in progress.")
                 .overview("Design generation is in progress. Please wait for orchestration to complete.")
                 .capacityEstimation("Pending generation")
@@ -96,18 +124,6 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 .wireframeScreens(List.of())
                 .diagramMetadata(null)
                 .build();
-
-        int nextVersion = systemDesignRepository.findTopByProductNameOrderByVersionDesc(request.getProductName())
-                .map(existing -> existing.getVersion() + 1)
-                .orElse(1);
-
-        SystemDesign design = SystemDesign.builder()
-                .id(designId)
-                .productName(request.getProductName())
-                .version(nextVersion)
-                .documentJson(documentMapper.toJsonNode(placeholderDocument))
-                .build();
-        systemDesignRepository.save(design);
     }
 
     @Override
@@ -198,6 +214,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             );
 
             JsonNode finalDocument = documentMapper.toJsonNode(document);
+            JsonNode requestSnapshot = objectMapper.valueToTree(request);
             SystemDesign systemDesign = systemDesignRepository.findById(designId)
                     .orElseGet(() -> SystemDesign.builder()
                             .id(designId)
@@ -207,8 +224,10 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                                             .map(existing -> existing.getVersion() + 1)
                                             .orElse(1)
                             )
+                            .requestJson(requestSnapshot)
                             .build());
             systemDesign.setProductName(request.getProductName());
+            systemDesign.setRequestJson(requestSnapshot);
             systemDesign.setDocumentJson(finalDocument);
             systemDesignRepository.save(systemDesign);
             designGenerationPublisher.publishStageCompleted(
@@ -322,6 +341,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 .wireframeScreens(List.of())
                 .diagramMetadata(null)
                 .build();
+        JsonNode requestSnapshot = objectMapper.valueToTree(request);
 
         SystemDesign design = systemDesignRepository.findById(designId)
                 .orElseGet(() -> SystemDesign.builder()
@@ -332,7 +352,9 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                                         .map(existing -> existing.getVersion() + 1)
                                         .orElse(1)
                         )
+                        .requestJson(requestSnapshot)
                         .build());
+        design.setRequestJson(requestSnapshot);
         design.setDocumentJson(documentMapper.toJsonNode(failureDocument));
         systemDesignRepository.save(design);
     }
@@ -345,15 +367,17 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         if (section.isMissingNode() || section.isNull() || !section.isObject()) {
             return "";
         }
-        StringBuilder builder = new StringBuilder();
-        appendSection(builder, "Project Summary", getText(section, "project_summary"));
-        appendListSection(builder, "In Scope", readStringArray(section.path("in_scope")));
-        appendListSection(builder, "Out Of Scope", readStringArray(section.path("out_of_scope")));
-        appendListSection(builder, "Deliverables", readStringArray(section.path("deliverables")));
-        appendListSection(builder, "Milestones", readStringArray(section.path("milestones")));
-        appendListSection(builder, "Acceptance Criteria", readStringArray(section.path("acceptance_criteria")));
-        appendListSection(builder, "Risks", readStringArray(section.path("risks")));
-        appendListSection(builder, "Assumptions", readStringArray(section.path("assumptions")));
+        StringBuilder builder = new StringBuilder("Scope Of Work\n");
+        appendSection(builder, "1. Project Summary", getText(section, "project_summary"));
+        appendListSection(builder, "2. Business Objectives", readStringArray(section.path("business_objectives")));
+        appendListSection(builder, "3. In Scope", readStringArray(section.path("in_scope")));
+        appendListSection(builder, "4. Out Of Scope", readStringArray(section.path("out_of_scope")));
+        appendListSection(builder, "5. Dependencies", readStringArray(section.path("dependencies")));
+        appendListSection(builder, "6. Deliverables", readStringArray(section.path("deliverables")));
+        appendListSection(builder, "7. Milestones", readStringArray(section.path("milestones")));
+        appendListSection(builder, "8. Acceptance Criteria", readStringArray(section.path("acceptance_criteria")));
+        appendListSection(builder, "9. Risks", readStringArray(section.path("risks")));
+        appendListSection(builder, "10. Assumptions", readStringArray(section.path("assumptions")));
         return builder.toString().trim();
     }
 
@@ -1010,6 +1034,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         log.info("DesignId={} stage={} started", designId, stageName);
         try {
             DesignStageResult result = aiStageService.generateSow(request);
+            persistSowSnapshot(designId, request, result.getContent());
             designGenerationPublisher.publishStageCompleted(designId.toString(), stageName, progress, result.getContent());
             log.info("DesignId={} stage={} completed", designId, stageName);
             return result;
@@ -1019,40 +1044,95 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             Map<String, Object> fallbackSow = Map.of(
                     "sow",
                     Map.of(
-                            "project_summary", "Project scope prepared from provided requirements and constraints.",
+                            "project_summary", "This scope of work defines delivery for a production-ready architecture and implementation plan. "
+                                    + "It includes requirement clarification, component design, API specification, task-level execution planning, "
+                                    + "wireframe definition, deployment alignment, and operational readiness expectations. The SOW is structured for "
+                                    + "engineering execution with measurable outcomes, phased milestones, and clear in-scope/out-of-scope boundaries.",
+                            "business_objectives", List.of(
+                                    "Deliver a scalable architecture blueprint aligned with growth targets and non-functional constraints.",
+                                    "Provide implementation-grade APIs and module contracts to accelerate engineering execution.",
+                                    "Reduce delivery ambiguity by mapping requirements to concrete components and milestones.",
+                                    "Establish operational readiness with observability, reliability, and deployment guardrails."
+                            ),
                             "in_scope", List.of(
-                                    "Architecture design and module planning",
-                                    "API blueprint definition",
-                                    "Task-level implementation roadmap"
+                                    "Requirement decomposition into platform modules and engineering workstreams.",
+                                    "High-level and low-level architecture for core and supporting services.",
+                                    "API contract inventory covering business, admin, and operational flows.",
+                                    "Database, cache, queue, and storage strategy for expected scale profile.",
+                                    "Data flow coverage for synchronous and asynchronous workflows.",
+                                    "Task-level execution plan with role-based hour estimates.",
+                                    "Wireframe-level UX blueprint for key user and operations flows.",
+                                    "Deployment and runtime architecture alignment for selected infra stack.",
+                                    "Resilience, scalability, and monitoring strategy recommendations.",
+                                    "Documentation and handoff artifacts for implementation teams."
                             ),
                             "out_of_scope", List.of(
-                                    "Post-production feature changes",
-                                    "Third-party commercial licensing management"
+                                    "Post-go-live feature expansion beyond approved requirement baseline.",
+                                    "Procurement and commercial negotiation with third-party vendors.",
+                                    "Legal, compliance, and policy approvals outside technical implementation scope.",
+                                    "Long-term managed operations and on-call staffing agreements.",
+                                    "End-user training programs and customer support playbook creation.",
+                                    "Marketing, GTM strategy, or business process consulting deliverables."
+                            ),
+                            "dependencies", List.of(
+                                    "Finalized and prioritized functional requirements approved by product stakeholders.",
+                                    "Infrastructure access and environment provisioning for development and validation.",
+                                    "Availability of domain SMEs for requirement clarification during design cycles.",
+                                    "Decisions on security posture, auth provider, and compliance baseline."
                             ),
                             "deliverables", List.of(
-                                    "Structured system design document",
-                                    "Comprehensive API inventory",
-                                    "Detailed task breakdown with effort estimates",
-                                    "Wireframe blueprint"
+                                    "Structured system design document covering architecture, components, and flows.",
+                                    "Detailed scope of work with phase-wise engineering objectives and boundaries.",
+                                    "Comprehensive API inventory with method/path and purpose mapping.",
+                                    "Module-level breakdown with implementation sequencing.",
+                                    "Low-level design references for key components and interfaces.",
+                                    "Task-level work plan with experienced/mid/fresher effort estimates.",
+                                    "Wireframe blueprint for core product and operational screens.",
+                                    "Scalability and reliability strategy recommendations.",
+                                    "Failure handling and degradation strategy notes.",
+                                    "Export-ready artifacts for PDF and CSV handoff."
                             ),
                             "milestones", List.of(
-                                    "SOW finalization",
-                                    "Architecture completion",
-                                    "Task planning completion",
-                                    "Wireframe and handoff completion"
+                                    "Phase 1 - Discovery closure (Owner: Product + Architect) completed when requirements and constraints are baseline-approved.",
+                                    "Phase 2 - SOW finalization (Owner: Architect) completed when scope, assumptions, risks, and acceptance criteria are signed off.",
+                                    "Phase 3 - HLD completion (Owner: Architecture team) completed when target architecture and core component map are frozen.",
+                                    "Phase 4 - API and data model closure (Owner: Backend lead) completed when API inventory and schema strategy are approved.",
+                                    "Phase 5 - LLD completion (Owner: Engineering leads) completed when component internals and integration contracts are finalized.",
+                                    "Phase 6 - Task plan approval (Owner: Delivery manager) completed when effort estimates and execution sequence are validated.",
+                                    "Phase 7 - Wireframe alignment (Owner: Product + UX) completed when key journey screens are reviewed and approved.",
+                                    "Phase 8 - Handoff readiness (Owner: Program owner) completed when documentation and execution artifacts are published."
                             ),
                             "acceptance_criteria", List.of(
-                                    "All requested modules are covered",
-                                    "API coverage is complete",
-                                    "Task plan includes role-wise effort estimates"
+                                    "All prioritized functional requirements are mapped to at least one implementation component.",
+                                    "Core non-functional requirements are explicitly addressed in architecture decisions.",
+                                    "API inventory includes required business, admin, and operational interfaces.",
+                                    "Task breakdown includes module-wise detailed tasks and role-specific estimates.",
+                                    "Wireframe output covers critical end-user and administrative workflows.",
+                                    "Architecture includes resilience and scaling strategy for expected demand.",
+                                    "Dependencies and out-of-scope constraints are explicitly documented.",
+                                    "Milestones include owner and completion condition per phase.",
+                                    "Generated artifacts are exportable and consumable by implementation teams.",
+                                    "Design package is sufficient for sprint planning and engineering kickoff."
                             ),
                             "risks", List.of(
-                                    "Requirement volatility can change estimates",
-                                    "External dependencies can impact schedule"
+                                    "Requirement volatility may expand scope and impact estimates; mitigation: enforce baseline and change-control checkpoints.",
+                                    "Third-party integration uncertainty may delay implementation; mitigation: isolate adapters and define fallback contracts.",
+                                    "Environment provisioning delays may block validation; mitigation: pre-create infra and define mock/stub plan.",
+                                    "Performance assumptions may not hold at scale; mitigation: define load thresholds and early performance tests.",
+                                    "Security design gaps may trigger late rework; mitigation: include threat-model review before implementation.",
+                                    "Cross-team dependency slippage may affect milestones; mitigation: explicit ownership and dependency tracking board.",
+                                    "Data model changes may ripple through APIs; mitigation: version schema and freeze core contracts early.",
+                                    "Tooling/stack mismatch with team skills may reduce velocity; mitigation: align stack decisions with team competency."
                             ),
                             "assumptions", List.of(
-                                    "Requirements are prioritized and approved",
-                                    "Delivery team has required skills and access"
+                                    "Requirement backlog is prioritized and approved before deep implementation planning.",
+                                    "Delivery team has access to required repositories, environments, and observability tooling.",
+                                    "Target cloud/infrastructure baseline is available for architecture alignment.",
+                                    "Security/compliance controls are defined at project start and do not change materially mid-cycle.",
+                                    "Core business workflows remain stable during the initial planning window.",
+                                    "Cross-functional stakeholders are available for periodic sign-off checkpoints.",
+                                    "External dependencies provide stable API contracts or sandbox access.",
+                                    "Engineering capacity assumptions remain consistent with current staffing plan."
                             )
                     )
             );
@@ -1062,9 +1142,46 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     .content(fallbackJson)
                     .createdAt(LocalDateTime.now())
                     .build();
+            persistSowSnapshot(designId, request, fallbackJson);
             designGenerationPublisher.publishStageCompleted(designId.toString(), stageName, progress, fallbackJson);
             log.info("DesignId={} stage={} completed with fallback output", designId, stageName);
             return fallback;
+        }
+    }
+
+    private void persistSowSnapshot(UUID designId, DesignRequestDTO request, String sowJson) {
+        try {
+            JsonNode requestSnapshot = objectMapper.valueToTree(request);
+            SystemDesign design = systemDesignRepository.findById(designId)
+                    .orElseGet(() -> SystemDesign.builder()
+                            .id(designId)
+                            .productName(request.getProductName())
+                            .version(
+                                    systemDesignRepository.findTopByProductNameOrderByVersionDesc(request.getProductName())
+                                            .map(existing -> existing.getVersion() + 1)
+                                            .orElse(1)
+                            )
+                            .requestJson(requestSnapshot)
+                            .documentJson(documentMapper.toJsonNode(buildPlaceholderDocument()))
+                            .build());
+
+            SystemDesignDocument currentDocument = documentMapper.fromJsonNode(design.getDocumentJson());
+            if (currentDocument == null) {
+                currentDocument = buildPlaceholderDocument();
+            }
+            String resolvedSow = resolveSowText(readJson(sowJson));
+            if (!resolvedSow.isBlank()) {
+                currentDocument.setSow(resolvedSow);
+            } else if (sowJson != null && !sowJson.isBlank()) {
+                currentDocument.setSow(sowJson);
+            }
+
+            design.setProductName(request.getProductName());
+            design.setRequestJson(requestSnapshot);
+            design.setDocumentJson(documentMapper.toJsonNode(currentDocument));
+            systemDesignRepository.save(design);
+        } catch (Exception ex) {
+            log.warn("Failed to persist SOW snapshot for designId={}", designId, ex);
         }
     }
 

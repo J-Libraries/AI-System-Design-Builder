@@ -39,6 +39,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,12 +48,15 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class DesignDocumentServiceImpl implements DesignDocumentService {
 
+    private static final Logger log = LoggerFactory.getLogger(DesignDocumentServiceImpl.class);
     private static final Font TITLE_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 24);
     private static final Font SECTION_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16);
     private static final Font BODY_FONT = FontFactory.getFont(FontFactory.HELVETICA, 11);
     private static final Font SUBTITLE_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12);
     private static final int DIAGRAM_WIDTH = 1100;
     private static final int DIAGRAM_HEIGHT = 700;
+    private static final int SOW_WAIT_ATTEMPTS = 60;
+    private static final long SOW_WAIT_INTERVAL_MS = 500L;
 
     private final SystemDesignRepository systemDesignRepository;
     private final SystemDesignDocumentMapper documentMapper;
@@ -118,10 +123,8 @@ public class DesignDocumentServiceImpl implements DesignDocumentService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public byte[] exportSowPdf(UUID designId) {
-        SystemDesign design = systemDesignRepository.findById(designId)
-                .orElseThrow(() -> new ResourceNotFoundException("System design not found with id: " + designId));
+        SystemDesign design = waitForSowReadyDesign(designId);
         SystemDesignDocument documentModel = documentMapper.fromJsonNode(design.getDocumentJson());
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
@@ -151,6 +154,37 @@ public class DesignDocumentServiceImpl implements DesignDocumentService {
         }
 
         return outputStream.toByteArray();
+    }
+
+    private SystemDesign waitForSowReadyDesign(UUID designId) {
+        SystemDesign latest = systemDesignRepository.findById(designId)
+                .orElseThrow(() -> new ResourceNotFoundException("System design not found with id: " + designId));
+
+        for (int attempt = 0; attempt < SOW_WAIT_ATTEMPTS; attempt++) {
+            SystemDesignDocument documentModel = documentMapper.fromJsonNode(latest.getDocumentJson());
+            if (isSowReady(documentModel == null ? null : documentModel.getSow())) {
+                return latest;
+            }
+            try {
+                Thread.sleep(SOW_WAIT_INTERVAL_MS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            latest = systemDesignRepository.findById(designId)
+                    .orElseThrow(() -> new ResourceNotFoundException("System design not found with id: " + designId));
+        }
+
+        log.info("SOW export fallback to latest persisted document for designId={}", designId);
+        return latest;
+    }
+
+    private boolean isSowReady(String sow) {
+        if (sow == null || sow.isBlank()) {
+            return false;
+        }
+        String normalized = sow.trim().toLowerCase();
+        return !normalized.contains("in progress");
     }
 
     @Override
