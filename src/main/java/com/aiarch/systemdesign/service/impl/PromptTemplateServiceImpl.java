@@ -146,19 +146,28 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 4) Keep architecture text practical and implementation-oriented, not generic.
                 5) Include at least 20 API contracts spanning auth, user/profile, core business objects,
                    search/feed, notification, admin/ops, health/metrics, and integration endpoints.
-                6) Include dedicated design viewpoints inspired by backend, software architect,
+                6) For every major module include explicit production notes:
+                   - ownership boundary
+                   - request path + async/event path
+                   - persistence strategy
+                   - failure handling and fallback behavior
+                   - observability signals (logs/metrics/traces)
+                7) Include dedicated design viewpoints inspired by backend, software architect,
                    devops, and docker roadmaps.
-                7) Tailor the architecture and implementation choices strongly for the selected
+                8) Tailor the architecture and implementation choices strongly for the selected
                    target platform, design domain, and preferred stack.
-                8) If design domain is MOBILE, include BFF/API optimization, offline sync, push notifications,
+                9) If design domain is MOBILE, include BFF/API optimization, offline sync, push notifications,
                    and mobile telemetry.
-                9) If design domain is FRONTEND, include rendering strategy, state management, caching strategy,
+                10) If mobile use-case includes camera/photo/video capture, explicitly include a Camera Module
+                   with: device capability detection, permissions, focus/exposure/ISO/shutter controls,
+                   capture pipeline, processing/compression, metadata, and upload handoff.
+                11) If design domain is FRONTEND, include rendering strategy, state management, caching strategy,
                    asset delivery, and observability.
-                10) If design domain is DEVOPS or SERVER_ARCHITECTURE, include deployment topology, CI/CD,
+                12) If design domain is DEVOPS or SERVER_ARCHITECTURE, include deployment topology, CI/CD,
                    infra automation, runtime operations, security controls, and SLO governance.
-                11) If any capability is marked as "Not used", exclude related components, APIs, and strategy sections.
+                13) If any capability is marked as "Not used", exclude related components, APIs, and strategy sections.
                     Example: if database is not used, avoid database_schema entries and DB-specific components.
-                12) Apply exclusion matrix strictly:
+                14) Apply exclusion matrix strictly:
                     - Preferred Stack = Not used => do not include backend business services, backend-only API contracts, or service-runtime internals.
                     - Preferred Database = Not used => do not include database_schemas entries or DB nodes/edges.
                     - Server Type = Not used => avoid server topology, host sizing, and server provisioning details.
@@ -230,9 +239,16 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 4) Ensure components map back to functional requirements.
                 5) Include execution order (build_order) for implementation sequencing and
                    implementation_approach to explain how each module should be built.
-                6) If the product has mobile context, include mobile-specific modules:
+                6) Return at least 12 components for production-level systems unless intentionally constrained.
+                7) Each component responsibility must include: business purpose, key inputs/outputs,
+                   state management or persistence touchpoint, and major failure mode.
+                8) If the product has mobile context, include mobile-specific modules:
                    auth/onboarding, profile/session, feed/listing, local storage/offline sync,
                    push notification integration, analytics/telemetry, and crash reporting.
+                9) If mobile requirements mention camera/photo/video capture, include a dedicated Camera Module
+                   with explicit sub-capabilities in responsibility/implementation_approach:
+                   permissions, device capabilities, autofocus/manual focus, ISO, shutter speed,
+                   flash modes, image processing, and upload queue handoff.
 
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema:
@@ -262,6 +278,15 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 1) For each component, include internal module responsibilities, classes/interfaces, and interaction sequence.
                 2) Include data structures, idempotency/retry concepts, and consistency implications where relevant.
                 3) Prefer realistic backend design patterns over generic placeholders.
+                4) Each component entry should be implementation-ready:
+                   - module_description should cover control flow, storage/cache interaction, failure handling, and observability.
+                   - classes should include concrete class names plus role hints.
+                   - interfaces should include contract-level interfaces with clear names.
+                   - sequence should include at least 8 ordered steps for non-trivial modules.
+                5) If there is a camera/capture module, include concrete internals such as:
+                   CameraPermissionManager, DeviceCapabilityService, ExposureController,
+                   FocusController, FlashController, CaptureSessionManager, ImageProcessingPipeline,
+                   CaptureMetadataStore, UploadOrchestrator.
 
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema:
@@ -410,8 +435,12 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 5) If this is mobile-oriented, include mobile client modules, API integration,
                    local persistence/offline sync, notification integration, release pipeline,
                    and QA/sign-off tasks.
-                6) Each module must have at least 6 task rows and each task row should include
+                6) Each module must have at least 10 task rows and each task row should include
                    task-level hours for all 3 developer levels.
+                7) If camera/capture module exists, include dedicated task rows for:
+                   permissions flow, camera session setup, autofocus/manual focus,
+                   ISO/shutter/flash controls, image processing/compression, upload retry queue,
+                   telemetry instrumentation, device compatibility tests, and battery/perf optimization.
 
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema:
@@ -453,6 +482,8 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 1) Provide wireframe screens in build order from onboarding/core flows to admin/ops screens.
                 2) For each screen include purpose, layout description, UI components, interactions, and API bindings.
                 3) Ensure wireframes reflect mobile/web context where relevant.
+                4) For camera/capture use-cases, include at least one camera capture screen with controls for
+                   flash, ISO, shutter speed, focus, grid overlays, capture actions, and upload status.
 
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema:

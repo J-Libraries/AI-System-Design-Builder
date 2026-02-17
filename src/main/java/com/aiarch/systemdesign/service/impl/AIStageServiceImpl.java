@@ -10,6 +10,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -206,15 +209,199 @@ public class AIStageServiceImpl implements AIStageService {
     }
 
     private JsonNode parseJsonWithRecovery(String rawResponse) throws JsonProcessingException {
-        try {
-            return objectMapper.readTree(rawResponse);
-        } catch (JsonProcessingException directParseException) {
-            Optional<String> candidate = extractJsonObjectCandidate(rawResponse);
-            if (candidate.isPresent()) {
-                return objectMapper.readTree(candidate.get());
+        List<String> parseCandidates = buildParseCandidates(rawResponse);
+        JsonProcessingException lastException = null;
+
+        for (String candidate : parseCandidates) {
+            if (candidate == null || candidate.isBlank()) {
+                continue;
             }
-            throw directParseException;
+            try {
+                return objectMapper.readTree(candidate);
+            } catch (JsonProcessingException parseException) {
+                lastException = parseException;
+                String sanitized = sanitizeInvalidEscapesInJsonStrings(candidate);
+                if (!sanitized.equals(candidate)) {
+                    try {
+                        return objectMapper.readTree(sanitized);
+                    } catch (JsonProcessingException sanitizedException) {
+                        lastException = sanitizedException;
+                    }
+                }
+            }
         }
+
+        if (lastException != null) {
+            throw lastException;
+        }
+        throw new JsonProcessingException("No JSON candidate available for parsing") { };
+    }
+
+    private List<String> buildParseCandidates(String rawResponse) {
+        LinkedHashSet<String> uniqueCandidates = new LinkedHashSet<>();
+        if (rawResponse == null) {
+            return List.of();
+        }
+
+        String trimmed = rawResponse.trim();
+        if (!trimmed.isBlank()) {
+            uniqueCandidates.add(trimmed);
+        }
+
+        String withoutCodeFence = stripMarkdownCodeFence(trimmed);
+        if (!withoutCodeFence.isBlank()) {
+            uniqueCandidates.add(withoutCodeFence);
+        }
+
+        extractJsonObjectCandidate(trimmed).ifPresent(uniqueCandidates::add);
+        extractJsonObjectCandidate(withoutCodeFence).ifPresent(uniqueCandidates::add);
+
+        List<String> ordered = new ArrayList<>(uniqueCandidates);
+        List<String> withSanitizedEscapes = new ArrayList<>();
+        for (String candidate : ordered) {
+            String sanitized = sanitizeInvalidEscapesInJsonStrings(candidate);
+            if (!sanitized.equals(candidate)) {
+                withSanitizedEscapes.add(sanitized);
+            }
+        }
+        ordered.addAll(withSanitizedEscapes);
+        return ordered;
+    }
+
+    private String stripMarkdownCodeFence(String value) {
+        if (value == null) {
+            return "";
+        }
+        String trimmed = value.trim();
+        if (!trimmed.startsWith("```")) {
+            return trimmed;
+        }
+
+        int firstLineBreak = trimmed.indexOf('\n');
+        if (firstLineBreak < 0) {
+            return trimmed;
+        }
+
+        String inner = trimmed.substring(firstLineBreak + 1);
+        int endingFence = inner.lastIndexOf("```");
+        if (endingFence >= 0) {
+            inner = inner.substring(0, endingFence);
+        }
+        return inner.trim();
+    }
+
+    private String sanitizeInvalidEscapesInJsonStrings(String value) {
+        if (value == null || value.isBlank()) {
+            return value == null ? "" : value;
+        }
+
+        StringBuilder builder = new StringBuilder(value.length());
+        boolean inString = false;
+        boolean pendingEscape = false;
+
+        for (int index = 0; index < value.length(); index++) {
+            char current = value.charAt(index);
+
+            if (!inString) {
+                builder.append(current);
+                if (current == '"') {
+                    inString = true;
+                }
+                continue;
+            }
+
+            if (pendingEscape) {
+                if (current == 'u') {
+                    if (hasValidUnicodeEscape(value, index + 1)) {
+                        builder.append('\\').append('u');
+                        builder.append(value, index + 1, index + 5);
+                        index += 4;
+                    } else {
+                        builder.append('u');
+                    }
+                } else if (isValidJsonEscapeCharacter(current)) {
+                    builder.append('\\').append(current);
+                } else {
+                    // Recover from malformed escapes like \} or \a by removing the backslash.
+                    builder.append(current);
+                }
+                pendingEscape = false;
+                continue;
+            }
+
+            if (current == '\\') {
+                pendingEscape = true;
+                continue;
+            }
+
+            builder.append(current);
+            if (current == '"') {
+                inString = false;
+            }
+        }
+
+        return builder.toString();
+    }
+
+    private boolean hasValidUnicodeEscape(String value, int startIndex) {
+        if (startIndex + 4 > value.length()) {
+            return false;
+        }
+        for (int index = startIndex; index < startIndex + 4; index++) {
+            if (!isHexDigit(value.charAt(index))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isHexDigit(char value) {
+        return (value >= '0' && value <= '9')
+                || (value >= 'a' && value <= 'f')
+                || (value >= 'A' && value <= 'F');
+    }
+
+    private boolean isValidJsonEscapeCharacter(char value) {
+        return value == '"'
+                || value == '\\'
+                || value == '/'
+                || value == 'b'
+                || value == 'f'
+                || value == 'n'
+                || value == 'r'
+                || value == 't';
+    }
+
+    private boolean shouldEscapeBackslashPreview(char value) {
+        return value == '"'
+                || value == '\\'
+                || value == '/'
+                || value == 'b'
+                || value == 'f'
+                || value == 'n'
+                || value == 'r'
+                || value == 't'
+                || value == 'u';
+    }
+
+    private String sanitizeForRetryContext(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String sanitized = raw.replace("\\", "\\\\");
+        StringBuilder builder = new StringBuilder(sanitized.length());
+        for (int index = 0; index < sanitized.length(); index++) {
+            char current = sanitized.charAt(index);
+            if (current == '\\' && index + 1 < sanitized.length()) {
+                char next = sanitized.charAt(index + 1);
+                if (!shouldEscapeBackslashPreview(next)) {
+                    builder.append("\\\\");
+                    continue;
+                }
+            }
+            builder.append(current);
+        }
+        return builder.toString();
     }
 
     private Optional<String> extractJsonObjectCandidate(String value) {
@@ -231,8 +418,10 @@ public class AIStageServiceImpl implements AIStageService {
         if (boundedPrevious.length() > MAX_RETRY_CONTEXT_CHARS) {
             boundedPrevious = boundedPrevious.substring(0, MAX_RETRY_CONTEXT_CHARS);
         }
+        boundedPrevious = sanitizeForRetryContext(boundedPrevious);
         return initialPrompt
                 + promptTemplateService.invalidJsonRetrySuffix()
+                + "\nJSON escaping rules: only use valid escapes (\\\\, \\\", \\/, \\b, \\f, \\n, \\r, \\t, \\uXXXX). Never use invalid escapes like \\}."
                 + "\n\nStage: " + stageName
                 + "\nPrevious invalid output (truncated):\n"
                 + boundedPrevious

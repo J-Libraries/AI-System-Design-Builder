@@ -1,7 +1,9 @@
 package com.aiarch.systemdesign.service.impl;
 
+import com.aiarch.systemdesign.dto.DesignDomain;
 import com.aiarch.systemdesign.dto.DesignRequestDTO;
 import com.aiarch.systemdesign.dto.DesignStageResult;
+import com.aiarch.systemdesign.dto.TargetPlatform;
 import com.aiarch.systemdesign.dto.document.ApiContract;
 import com.aiarch.systemdesign.dto.document.Component;
 import com.aiarch.systemdesign.dto.document.ComponentLLD;
@@ -62,7 +64,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
     private static final TypeReference<List<WireframeScreen>> WIREFRAME_SCREEN_TYPE = new TypeReference<>() { };
     private static final int MIN_API_CONTRACTS = 20;
     private static final int MIN_VISUAL_NODES = 10;
-    private static final int MIN_TASKS_PER_MODULE = 10;
+    private static final int MIN_TASKS_PER_MODULE = 12;
     private static final int BASE_X_SPACING = 280;
     private static final int BASE_Y_SPACING = 150;
 
@@ -210,7 +212,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     failureHandling.getContent(),
                     diagramMetadata.getContent(),
                     taskBreakdown.getContent(),
-                    wireframe.getContent()
+                    wireframe.getContent(),
+                    request
             );
 
             JsonNode finalDocument = documentMapper.toJsonNode(document);
@@ -266,7 +269,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             String failureJson,
             String diagramJson,
             String taskBreakdownJson,
-            String wireframeJson
+            String wireframeJson,
+            DesignRequestDTO request
     ) {
         JsonNode sowNode = readJson(sowJson);
         JsonNode hldNode = readJson(hldJson);
@@ -288,7 +292,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             taskBreakdown = buildFallbackTaskBreakdown(components);
         }
 
-        return SystemDesignDocument.builder()
+        SystemDesignDocument document = SystemDesignDocument.builder()
                 .overview(getText(hldNode, "overview"))
                 .assumptions(readList(hldNode, "assumptions", STRING_LIST_TYPE))
                 .capacityEstimation(getText(hldNode, "capacity_estimation"))
@@ -307,6 +311,478 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 .wireframeScreens(resolveWireframeScreens(wireframeNode))
                 .diagramMetadata(diagramMetadata)
                 .build();
+
+        return enrichDocumentForRequest(document, request);
+    }
+
+    private SystemDesignDocument enrichDocumentForRequest(SystemDesignDocument document, DesignRequestDTO request) {
+        if (document == null || request == null || !isMobileContext(request)) {
+            return document;
+        }
+
+        boolean cameraRequested = isCameraRequested(request);
+        if (!cameraRequested) {
+            return document;
+        }
+
+        List<Component> components = document.getComponents() == null
+                ? new ArrayList<>()
+                : new ArrayList<>(document.getComponents());
+        components = ensureCameraComponentCoverage(components);
+        components = enrichComponents(components);
+        document.setComponents(components);
+
+        List<ComponentLLD> lld = document.getLld() == null
+                ? new ArrayList<>()
+                : new ArrayList<>(document.getLld());
+        lld = ensureCameraLldCoverage(lld);
+        document.setLld(lld);
+
+        List<ApiContract> apiContracts = document.getApiContracts() == null
+                ? new ArrayList<>()
+                : new ArrayList<>(document.getApiContracts());
+        apiContracts = ensureCameraApiCoverage(apiContracts);
+        document.setApiContracts(ensureRichApiContracts(apiContracts, components));
+
+        List<TaskBreakdownItem> taskBreakdown = document.getTaskBreakdown() == null
+                ? new ArrayList<>()
+                : new ArrayList<>(document.getTaskBreakdown());
+        taskBreakdown = ensureCameraTaskBreakdownCoverage(taskBreakdown);
+        document.setTaskBreakdown(normalizeTaskBreakdown(taskBreakdown));
+
+        List<WireframeScreen> wireframeScreens = document.getWireframeScreens() == null
+                ? new ArrayList<>()
+                : new ArrayList<>(document.getWireframeScreens());
+        wireframeScreens = ensureCameraWireframeCoverage(wireframeScreens);
+        document.setWireframeScreens(wireframeScreens);
+
+        document.setHld(appendCameraHldDetail(document.getHld()));
+        return document;
+    }
+
+    private boolean isMobileContext(DesignRequestDTO request) {
+        if (request == null) {
+            return false;
+        }
+        if (request.getDesignDomain() == DesignDomain.MOBILE) {
+            return true;
+        }
+        return request.getTargetPlatform() == TargetPlatform.MOBILE
+                || request.getTargetPlatform() == TargetPlatform.BOTH;
+    }
+
+    private boolean isCameraRequested(DesignRequestDTO request) {
+        if (request == null) {
+            return false;
+        }
+        if (containsAnyCameraKeyword(request.getProductName())) {
+            return true;
+        }
+        if (request.getFunctionalRequirements() != null) {
+            for (String requirement : request.getFunctionalRequirements()) {
+                if (containsAnyCameraKeyword(requirement)) {
+                    return true;
+                }
+            }
+        }
+        if (request.getNonFunctionalRequirements() != null) {
+            for (String requirement : request.getNonFunctionalRequirements()) {
+                if (containsAnyCameraKeyword(requirement)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean containsAnyCameraKeyword(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        String normalized = value.toLowerCase();
+        return normalized.contains("camera")
+                || normalized.contains("photo")
+                || normalized.contains("image capture")
+                || normalized.contains("capture")
+                || normalized.contains("video")
+                || normalized.contains("reel")
+                || normalized.contains("scan")
+                || normalized.contains("qr");
+    }
+
+    private List<Component> ensureCameraComponentCoverage(List<Component> components) {
+        List<Component> result = components == null ? new ArrayList<>() : new ArrayList<>(components);
+        int existingIndex = -1;
+        for (int i = 0; i < result.size(); i++) {
+            Component component = result.get(i);
+            if (component != null && containsWord(component.getName(), "camera")) {
+                existingIndex = i;
+                break;
+            }
+        }
+
+        int nextOrder = 1;
+        for (Component component : result) {
+            nextOrder = Math.max(nextOrder, positiveOr(component == null ? null : component.getBuildOrder(), 0) + 1);
+        }
+
+        String cameraResponsibility = "Own camera capture lifecycle for mobile clients including permission checks, "
+                + "device capability discovery, autofocus/manual focus, ISO and shutter-speed control, flash modes, "
+                + "capture quality presets, image processing/compression, metadata creation, and resilient upload handoff.";
+        String cameraApproach = "Implement as a dedicated camera domain module with capability adapters (CameraX/AVFoundation), "
+                + "state machine for preview/focus/capture, exposure controller, processing pipeline, and background upload queue. "
+                + "Include feature flags for advanced controls, telemetry for latency/failure rates, and graceful fallback for unsupported devices.";
+        List<String> cameraDependencies = List.of(
+                "Permission Service",
+                "Device Capability Service",
+                "Media Processing Service",
+                "Upload Queue",
+                "Observability Service"
+        );
+
+        if (existingIndex >= 0) {
+            Component existing = result.get(existingIndex);
+            if (existing == null) {
+                existing = Component.builder().build();
+            }
+            existing.setName(existing.getName() == null || existing.getName().isBlank() ? "Camera Module" : existing.getName());
+            existing.setType(existing.getType() == null || existing.getType().isBlank() ? "mobile_feature" : existing.getType());
+            if (existing.getResponsibility() == null || existing.getResponsibility().length() < 90) {
+                existing.setResponsibility(cameraResponsibility);
+            }
+            if (existing.getImplementationApproach() == null || existing.getImplementationApproach().length() < 120) {
+                existing.setImplementationApproach(cameraApproach);
+            }
+            existing.setDependencies(mergeUnique(existing.getDependencies(), cameraDependencies));
+            if (existing.getBuildOrder() == null || existing.getBuildOrder() <= 0) {
+                existing.setBuildOrder(nextOrder);
+            }
+            result.set(existingIndex, existing);
+            return result;
+        }
+
+        result.add(Component.builder()
+                .name("Camera Module")
+                .type("mobile_feature")
+                .responsibility(cameraResponsibility)
+                .implementationApproach(cameraApproach)
+                .buildOrder(nextOrder)
+                .dependencies(cameraDependencies)
+                .build());
+        return result;
+    }
+
+    private List<ComponentLLD> ensureCameraLldCoverage(List<ComponentLLD> lldList) {
+        List<ComponentLLD> result = lldList == null ? new ArrayList<>() : new ArrayList<>(lldList);
+        int existingIndex = -1;
+        for (int i = 0; i < result.size(); i++) {
+            ComponentLLD lld = result.get(i);
+            if (lld != null && containsWord(lld.getComponentName(), "camera")) {
+                existingIndex = i;
+                break;
+            }
+        }
+
+        List<String> classes = List.of(
+                "CameraPermissionManager (permission orchestration + rationale flow)",
+                "DeviceCapabilityService (supported lens/mode/ISO/shutter range detection)",
+                "CaptureSessionManager (preview lifecycle and camera session state machine)",
+                "FocusController (autofocus + tap-to-focus + lock)",
+                "ExposureController (ISO + shutter speed + exposure compensation)",
+                "FlashController (off/auto/on/torch mode handling)",
+                "ImageProcessingPipeline (crop/rotate/compress/color-profile pipeline)",
+                "CaptureMetadataStore (EXIF + capture context persistence)",
+                "UploadOrchestrator (background upload with retry/backoff)"
+        );
+        List<String> interfaces = List.of(
+                "CameraDeviceAdapter",
+                "CaptureControlApi",
+                "ImageProcessor",
+                "MediaUploadClient",
+                "CaptureTelemetryPublisher"
+        );
+        List<String> sequence = List.of(
+                "Client opens camera screen and CameraPermissionManager validates permission state.",
+                "DeviceCapabilityService loads camera features and available control ranges.",
+                "CaptureSessionManager initializes preview session with selected lens/profile.",
+                "FocusController configures autofocus mode and handles manual focus gestures.",
+                "ExposureController applies ISO/shutter values and validates supported bounds.",
+                "FlashController applies selected flash mode and sync settings.",
+                "User captures frame and ImageProcessingPipeline performs normalize/compress transforms.",
+                "CaptureMetadataStore persists capture metadata and diagnostic timing values.",
+                "UploadOrchestrator enqueues media upload job with idempotency key.",
+                "MediaUploadClient sends payload to media backend and tracks progress.",
+                "Retry policy handles transient failures and resumes on network recovery.",
+                "CaptureTelemetryPublisher emits success/failure metrics and latency traces."
+        );
+        String description = "Implements production-ready mobile camera stack with deterministic control flow for permissions, "
+                + "camera lifecycle, focus/exposure/ISO/shutter/flash controls, image transformation, metadata persistence, "
+                + "reliable upload handoff, and observability instrumentation.";
+
+        if (existingIndex >= 0) {
+            ComponentLLD existing = result.get(existingIndex);
+            if (existing == null) {
+                existing = ComponentLLD.builder().build();
+            }
+            existing.setComponentName(existing.getComponentName() == null || existing.getComponentName().isBlank()
+                    ? "Camera Module"
+                    : existing.getComponentName());
+            if (existing.getModuleDescription() == null || existing.getModuleDescription().length() < 120) {
+                existing.setModuleDescription(description);
+            }
+            existing.setClasses(mergeUnique(existing.getClasses(), classes));
+            existing.setInterfaces(mergeUnique(existing.getInterfaces(), interfaces));
+            existing.setSequence(mergeUnique(existing.getSequence(), sequence));
+            result.set(existingIndex, existing);
+            return result;
+        }
+
+        result.add(ComponentLLD.builder()
+                .componentName("Camera Module")
+                .moduleDescription(description)
+                .classes(classes)
+                .interfaces(interfaces)
+                .sequence(sequence)
+                .build());
+        return result;
+    }
+
+    private List<ApiContract> ensureCameraApiCoverage(List<ApiContract> apiContracts) {
+        List<ApiContract> result = apiContracts == null ? new ArrayList<>() : new ArrayList<>(apiContracts);
+        upsertApiContract(result, ApiContract.builder()
+                .name("Get Camera Capture Config")
+                .method("GET")
+                .path("/api/v1/media/capture-config")
+                .requestSchema("{\"device_type\":\"string\",\"app_version\":\"string\"}")
+                .responseSchema("{\"max_resolution\":\"string\",\"supported_flash_modes\":[\"string\"],\"iso_range\":\"string\",\"shutter_range\":\"string\"}")
+                .errorCodes(List.of("400", "401", "429", "500"))
+                .build());
+        upsertApiContract(result, ApiContract.builder()
+                .name("Create Capture Session")
+                .method("POST")
+                .path("/api/v1/media/captures/session")
+                .requestSchema("{\"user_id\":\"uuid\",\"device_info\":\"object\",\"capture_preset\":\"string\"}")
+                .responseSchema("{\"session_id\":\"string\",\"upload_policy\":\"object\",\"expires_at\":\"timestamp\"}")
+                .errorCodes(List.of("400", "401", "403", "429", "500"))
+                .build());
+        upsertApiContract(result, ApiContract.builder()
+                .name("Finalize Capture Metadata")
+                .method("POST")
+                .path("/api/v1/media/captures/{sessionId}/finalize")
+                .requestSchema("{\"metadata\":\"object\",\"image_hash\":\"string\",\"processing_profile\":\"string\"}")
+                .responseSchema("{\"capture_id\":\"string\",\"status\":\"string\"}")
+                .errorCodes(List.of("400", "401", "404", "409", "500"))
+                .build());
+        upsertApiContract(result, ApiContract.builder()
+                .name("Request Upload URL")
+                .method("POST")
+                .path("/api/v1/media/uploads/presign")
+                .requestSchema("{\"content_type\":\"string\",\"size_bytes\":0,\"checksum\":\"string\"}")
+                .responseSchema("{\"upload_url\":\"string\",\"storage_key\":\"string\",\"expires_at\":\"timestamp\"}")
+                .errorCodes(List.of("400", "401", "413", "429", "500"))
+                .build());
+        return result;
+    }
+
+    private void upsertApiContract(List<ApiContract> target, ApiContract candidate) {
+        if (candidate == null || candidate.getPath() == null || candidate.getPath().isBlank()) {
+            return;
+        }
+        String candidateMethod = normalizeMethod(candidate.getMethod());
+        String candidatePath = normalizePath(candidate.getPath());
+        for (int i = 0; i < target.size(); i++) {
+            ApiContract existing = target.get(i);
+            if (existing == null) {
+                continue;
+            }
+            if (candidateMethod.equals(normalizeMethod(existing.getMethod()))
+                    && candidatePath.equals(normalizePath(existing.getPath()))) {
+                target.set(i, mergeApiContract(existing, candidate));
+                return;
+            }
+        }
+        target.add(candidate);
+    }
+
+    private ApiContract mergeApiContract(ApiContract original, ApiContract overlay) {
+        if (original == null) {
+            return overlay;
+        }
+        if (overlay == null) {
+            return original;
+        }
+        return ApiContract.builder()
+                .name(isBlank(original.getName()) ? overlay.getName() : original.getName())
+                .method(isBlank(original.getMethod()) ? overlay.getMethod() : original.getMethod())
+                .path(isBlank(original.getPath()) ? overlay.getPath() : original.getPath())
+                .requestSchema(isBlank(original.getRequestSchema()) ? overlay.getRequestSchema() : original.getRequestSchema())
+                .responseSchema(isBlank(original.getResponseSchema()) ? overlay.getResponseSchema() : original.getResponseSchema())
+                .errorCodes(mergeUnique(original.getErrorCodes(), overlay.getErrorCodes()))
+                .build();
+    }
+
+    private List<TaskBreakdownItem> ensureCameraTaskBreakdownCoverage(List<TaskBreakdownItem> taskBreakdown) {
+        List<TaskBreakdownItem> result = taskBreakdown == null ? new ArrayList<>() : new ArrayList<>(taskBreakdown);
+        int existingIndex = -1;
+        for (int i = 0; i < result.size(); i++) {
+            TaskBreakdownItem item = result.get(i);
+            if (item != null && containsWord(item.getModuleName(), "camera")) {
+                existingIndex = i;
+                break;
+            }
+        }
+
+        List<TaskBreakdownTask> cameraTasks = buildCameraModuleTasks();
+        if (existingIndex >= 0) {
+            TaskBreakdownItem existing = result.get(existingIndex);
+            if (existing == null) {
+                existing = TaskBreakdownItem.builder().build();
+            }
+            existing.setModuleName(isBlank(existing.getModuleName()) ? "Camera Module" : existing.getModuleName());
+            existing.setImplementationApproach(
+                    isBlank(existing.getImplementationApproach())
+                            ? "Implement camera stack with layered controllers (permissions, capabilities, controls, capture, processing, upload) and strict observability."
+                            : existing.getImplementationApproach()
+            );
+            existing.setTasks(mergeTaskRows(existing.getTasks(), cameraTasks));
+            existing.setHoursExperiencedDeveloper(sumTaskHours(existing.getTasks(), Role.EXPERIENCED));
+            existing.setHoursMidLevelDeveloper(sumTaskHours(existing.getTasks(), Role.MID));
+            existing.setHoursFresher(sumTaskHours(existing.getTasks(), Role.FRESHER));
+            result.set(existingIndex, existing);
+            return result;
+        }
+
+        TaskBreakdownItem item = TaskBreakdownItem.builder()
+                .moduleName("Camera Module")
+                .implementationApproach("Build camera feature as an independent module with capability detection, control plane (focus/ISO/shutter/flash), capture pipeline, media upload orchestration, and runtime telemetry.")
+                .tasks(cameraTasks)
+                .hoursExperiencedDeveloper(sumTaskHours(cameraTasks, Role.EXPERIENCED))
+                .hoursMidLevelDeveloper(sumTaskHours(cameraTasks, Role.MID))
+                .hoursFresher(sumTaskHours(cameraTasks, Role.FRESHER))
+                .build();
+        result.add(item);
+        return result;
+    }
+
+    private List<TaskBreakdownTask> buildCameraModuleTasks() {
+        return List.of(
+                task("Camera requirement decomposition", "Define camera feature matrix: modes, device support, UX constraints, and acceptance criteria.", 10),
+                task("Permissions and privacy workflow", "Implement runtime permission flow, denial recovery, and privacy notices.", 12),
+                task("Camera session lifecycle", "Implement camera session startup/shutdown, background handling, and lifecycle resilience.", 16),
+                task("Device capability discovery", "Detect lens modes, frame rates, supported ISO/shutter ranges, and stabilization support.", 12),
+                task("Focus control module", "Implement autofocus, manual focus gestures, focus lock, and focus failure recovery.", 14),
+                task("Exposure controls (ISO + shutter)", "Implement ISO/shutter tuning controls with guardrails and real-time preview adjustments.", 18),
+                task("Flash control modes", "Implement flash off/auto/on/torch logic with capability checks and fallback behavior.", 10),
+                task("Image processing pipeline", "Build transform pipeline for orientation correction, compression, and quality profile selection.", 16),
+                task("Capture metadata persistence", "Store EXIF/context metadata and enforce idempotent capture records.", 10),
+                task("Upload queue orchestration", "Implement resilient upload queue with retry/backoff, offline replay, and deduplication.", 16),
+                task("Camera telemetry and alerts", "Instrument capture latency, failure counters, and device-specific error signals.", 10),
+                task("Device compatibility and performance testing", "Run compatibility matrix tests and optimize battery, memory, and thermal behavior.", 24),
+                task("Crash and recovery hardening", "Add defensive error handling, safe fallback states, and recovery UX.", 10)
+        );
+    }
+
+    private List<TaskBreakdownTask> mergeTaskRows(List<TaskBreakdownTask> existingTasks, List<TaskBreakdownTask> requiredTasks) {
+        Map<String, TaskBreakdownTask> byTask = new LinkedHashMap<>();
+        if (existingTasks != null) {
+            for (TaskBreakdownTask task : existingTasks) {
+                if (task == null || isBlank(task.getTaskName())) {
+                    continue;
+                }
+                byTask.put(taskKey(task.getTaskName()), task);
+            }
+        }
+        for (TaskBreakdownTask task : requiredTasks) {
+            if (task == null || isBlank(task.getTaskName())) {
+                continue;
+            }
+            byTask.putIfAbsent(taskKey(task.getTaskName()), task);
+        }
+        return new ArrayList<>(byTask.values());
+    }
+
+    private List<WireframeScreen> ensureCameraWireframeCoverage(List<WireframeScreen> screens) {
+        List<WireframeScreen> result = screens == null ? new ArrayList<>() : new ArrayList<>(screens);
+        for (WireframeScreen screen : result) {
+            if (screen != null && containsWord(screen.getScreenName(), "camera")) {
+                if (screen.getUiComponents() == null || screen.getUiComponents().size() < 6) {
+                    screen.setUiComponents(mergeUnique(
+                            screen.getUiComponents(),
+                            List.of("Preview surface", "Flash toggle", "ISO slider", "Shutter speed dial", "Focus reticle", "Capture button", "Upload status pill")
+                    ));
+                }
+                if (screen.getInteractions() == null || screen.getInteractions().size() < 5) {
+                    screen.setInteractions(mergeUnique(
+                            screen.getInteractions(),
+                            List.of("Tap to focus", "Adjust ISO", "Adjust shutter speed", "Toggle flash mode", "Capture image", "Retry upload")
+                    ));
+                }
+                return result;
+            }
+        }
+
+        result.add(WireframeScreen.builder()
+                .screenName("Camera Capture")
+                .platform("Mobile")
+                .purpose("Capture media with advanced camera controls and reliable upload handoff.")
+                .layoutDescription("Fullscreen preview with top control bar (flash, settings), center focus grid, bottom control tray (ISO, shutter speed, capture, gallery), and upload status rail.")
+                .uiComponents(List.of("Preview surface", "Flash toggle", "ISO slider", "Shutter speed dial", "Focus reticle", "Capture button", "Upload status pill"))
+                .interactions(List.of("Tap to focus", "Pinch to zoom", "Adjust ISO", "Adjust shutter speed", "Toggle flash mode", "Capture image", "Retry upload"))
+                .apiBindings(List.of(
+                        "GET /api/v1/media/capture-config",
+                        "POST /api/v1/media/captures/session",
+                        "POST /api/v1/media/uploads/presign",
+                        "POST /api/v1/media/captures/{sessionId}/finalize"
+                ))
+                .build());
+        return result;
+    }
+
+    private String appendCameraHldDetail(String hldText) {
+        String base = hldText == null ? "" : hldText.trim();
+        if (base.toLowerCase().contains("camera module")) {
+            return base;
+        }
+        String cameraDetail = """
+                
+                Camera Module Deep Dive:
+                - Control Plane: permission manager, capability detection, focus/exposure controller, flash manager.
+                - Capture Plane: preview session lifecycle, frame capture pipeline, image processing/compression.
+                - Reliability: bounded retry upload queue, offline replay, idempotent capture finalization.
+                - Observability: capture latency histogram, device capability mismatch counters, upload failure rates.
+                - Quality Gates: device compatibility matrix, thermal/battery guardrails, crash-safe recovery states.
+                """;
+        return (base + cameraDetail).trim();
+    }
+
+    private boolean containsWord(String source, String word) {
+        if (source == null || word == null) {
+            return false;
+        }
+        return source.toLowerCase().contains(word.toLowerCase());
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private List<String> mergeUnique(List<String> existing, List<String> additions) {
+        LinkedHashSet<String> merged = new LinkedHashSet<>();
+        if (existing != null) {
+            for (String item : existing) {
+                if (item != null && !item.isBlank()) {
+                    merged.add(item.trim());
+                }
+            }
+        }
+        if (additions != null) {
+            for (String item : additions) {
+                if (item != null && !item.isBlank()) {
+                    merged.add(item.trim());
+                }
+            }
+        }
+        return new ArrayList<>(merged);
     }
 
     private JsonNode readJson(String rawJson) {
