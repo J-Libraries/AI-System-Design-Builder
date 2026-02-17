@@ -486,6 +486,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
     @Override
     public String wireframePrompt(String hldJson, String componentBreakdownJson, String lldJson) {
+        // Legacy all-in-one prompt retained as fallback compatibility.
         return """
                 Generate implementation-grade product wireframes from design context.
                 HLD_JSON:
@@ -495,13 +496,6 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 LLD_JSON:
                 %s
 
-                Requirements:
-                1) Provide wireframe screens in build order from onboarding/core flows to admin/ops screens.
-                2) For each screen include purpose, layout description, UI components, interactions, and API bindings.
-                3) Ensure wireframes reflect mobile/web context where relevant.
-                4) For camera/capture use-cases, include at least one camera capture screen with controls for
-                   flash, ISO, shutter speed, focus, grid overlays, capture actions, and upload status.
-
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema:
                 {
@@ -509,16 +503,158 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                   "screens": [
                     {
                       "screen_name": "string",
+                      "route_id": "string",
                       "platform": "string",
                       "purpose": "string",
                       "layout_description": "string",
                       "ui_components": ["string"],
                       "interactions": ["string"],
-                      "api_bindings": ["string"]
+                      "api_bindings": ["string"],
+                      "next_screen_ids": ["string"],
+                      "screen_html": "string"
                     }
                   ]
                 }
                 """.formatted(hldJson, componentBreakdownJson, lldJson);
+    }
+
+    @Override
+    public String wireframeScreenListPrompt(String hldJson, String componentBreakdownJson, String lldJson) {
+        return """
+                You are a principal product designer and frontend architect.
+                Generate a complete screen inventory for a clickable prototype from the system design context.
+                HLD_JSON:
+                %s
+                COMPONENT_BREAKDOWN_JSON:
+                %s
+                LLD_JSON:
+                %s
+
+                Requirements:
+                1) Return screen list only, no HTML.
+                2) Include user-journey order from onboarding to core workflows to admin/ops.
+                3) Include route connections so screens can be navigated as a prototype.
+                4) Ensure web/mobile context is reflected in platform.
+                5) For medium/large systems return at least 8 screens.
+                6) Each screen must include:
+                   - screen_name
+                   - route_id (kebab-case)
+                   - platform
+                   - purpose
+                   - layout_description
+                   - ui_components (>= 8 items)
+                   - interactions (>= 4 items)
+                   - api_bindings (>= 3 items where APIs exist)
+                   - next_screen_ids
+                7) If camera/capture use-case exists, include camera capture and media review screens with controls.
+                8) Do not use placeholder wording. Keep content implementation-grade.
+
+                Return ONLY valid JSON. No markdown. No comments. No extra text.
+                Follow this exact schema:
+                {
+                  "wireframe_summary": "string",
+                  "screens": [
+                    {
+                      "screen_name": "string",
+                      "route_id": "string",
+                      "platform": "string",
+                      "purpose": "string",
+                      "layout_description": "string",
+                      "ui_components": ["string"],
+                      "interactions": ["string"],
+                      "api_bindings": ["string"],
+                      "next_screen_ids": ["string"]
+                    }
+                  ]
+                }
+                """.formatted(hldJson, componentBreakdownJson, lldJson);
+    }
+
+    @Override
+    public String wireframeScreenHtmlPrompt(
+            String hldJson,
+            String componentBreakdownJson,
+            String lldJson,
+            String screenListJson,
+            String screenSpecJson
+    ) {
+        return """
+                You are generating one screen for a high-fidelity clickable prototype.
+                Use the system-design context and screen list to produce production-quality HTML for ONE screen.
+                HLD_JSON:
+                %s
+                COMPONENT_BREAKDOWN_JSON:
+                %s
+                LLD_JSON:
+                %s
+                SCREEN_LIST_JSON:
+                %s
+                CURRENT_SCREEN_SPEC_JSON:
+                %s
+
+                Requirements:
+                1) Return exactly one screen object.
+                2) Preserve route_id and next_screen_ids so navigation remains connected.
+                3) Produce realistic, attractive, high-clarity HTML in screen_html.
+                4) HTML must include semantic structure and realistic controls for this screen purpose.
+                5) Navigation actions must use data-nav-screen="<route-id>" and match next_screen_ids.
+                6) Do not use markdown, fenced code blocks, or placeholders.
+                7) Keep all fields populated and implementation-ready.
+
+                Return ONLY valid JSON. No markdown. No comments. No extra text.
+                Follow this exact schema:
+                {
+                  "screen_name": "string",
+                  "route_id": "string",
+                  "platform": "string",
+                  "purpose": "string",
+                  "layout_description": "string",
+                  "ui_components": ["string"],
+                  "interactions": ["string"],
+                  "api_bindings": ["string"],
+                  "next_screen_ids": ["string"],
+                  "screen_html": "string"
+                }
+                """.formatted(hldJson, componentBreakdownJson, lldJson, screenListJson, screenSpecJson);
+    }
+
+    @Override
+    public String wireframeScreenRepairPrompt(
+            String screenSpecJson,
+            String currentScreenJson,
+            String validationError
+    ) {
+        return """
+                Repair the following screen JSON so that screen_html is valid and navigable.
+                SCREEN_SPEC_JSON:
+                %s
+                CURRENT_SCREEN_JSON:
+                %s
+                VALIDATION_ERROR:
+                %s
+
+                Requirements:
+                1) Keep route_id and next_screen_ids compatible with screen spec.
+                2) Fix HTML so it is complete, semantic, and interactive.
+                3) Include data-nav-screen values for every next_screen_id.
+                4) Keep content high-fidelity and realistic for this screen purpose.
+                5) Return strictly one JSON object with all required fields.
+
+                Return ONLY valid JSON. No markdown. No comments. No extra text.
+                Follow this exact schema:
+                {
+                  "screen_name": "string",
+                  "route_id": "string",
+                  "platform": "string",
+                  "purpose": "string",
+                  "layout_description": "string",
+                  "ui_components": ["string"],
+                  "interactions": ["string"],
+                  "api_bindings": ["string"],
+                  "next_screen_ids": ["string"],
+                  "screen_html": "string"
+                }
+                """.formatted(screenSpecJson, currentScreenJson, validationError);
     }
 
     @Override

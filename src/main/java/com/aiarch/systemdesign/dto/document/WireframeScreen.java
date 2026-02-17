@@ -19,10 +19,13 @@ import lombok.Setter;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class WireframeScreen {
     private String screenName;
+    private String routeId;
     private String platform;
     private String purpose;
     private String layoutDescription;
     private List<String> uiComponents;
     private List<String> interactions;
     private List<String> apiBindings;
+    private List<String> nextScreenIds;
+    private String screenHtml;
 }

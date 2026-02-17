@@ -954,7 +954,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                             List.of("Tap to focus", "Adjust ISO", "Adjust shutter speed", "Toggle flash mode", "Capture image", "Retry upload")
                     ));
                 }
-                return result;
+                return enrichWireframeScreens(result);
             }
         }
 
@@ -972,7 +972,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                         "POST /api/v1/media/captures/{sessionId}/finalize"
                 ))
                 .build());
-        return result;
+        return enrichWireframeScreens(result);
     }
 
     private String appendCameraHldDetail(String hldText) {
@@ -1101,9 +1101,9 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
     private List<WireframeScreen> resolveWireframeScreens(JsonNode wireframeNode) {
         List<WireframeScreen> screens = readList(wireframeNode, "screens", WIREFRAME_SCREEN_TYPE);
         if (screens.isEmpty()) {
-            return buildFallbackWireframeScreens(List.of());
+            return enrichWireframeScreens(buildFallbackWireframeScreens(List.of()));
         }
-        return screens;
+        return enrichWireframeScreens(screens);
     }
 
     private <T> List<T> readList(JsonNode node, String field, TypeReference<List<T>> typeReference) {
@@ -1731,6 +1731,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         seen.add(key);
         screens.add(WireframeScreen.builder()
                 .screenName(screenName)
+                .routeId(slugify(screenName))
                 .platform(platform)
                 .purpose(purpose)
                 .layoutDescription(layoutDescription)
@@ -1738,6 +1739,164 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 .interactions(interactions)
                 .apiBindings(apiBindings)
                 .build());
+    }
+
+    private List<WireframeScreen> enrichWireframeScreens(List<WireframeScreen> rawScreens) {
+        if (rawScreens == null || rawScreens.isEmpty()) {
+            return List.of();
+        }
+
+        List<WireframeScreen> normalized = new ArrayList<>();
+        Set<String> usedRouteIds = new LinkedHashSet<>();
+
+        for (int index = 0; index < rawScreens.size(); index++) {
+            WireframeScreen source = rawScreens.get(index);
+            if (source == null) {
+                continue;
+            }
+            String screenName = isBlank(source.getScreenName()) ? "Screen " + (index + 1) : source.getScreenName().trim();
+            String routeId = isBlank(source.getRouteId()) ? slugify(screenName) : slugify(source.getRouteId());
+            if (routeId.isBlank()) {
+                routeId = "screen-" + (index + 1);
+            }
+            if (usedRouteIds.contains(routeId)) {
+                routeId = routeId + "-" + (index + 1);
+            }
+            usedRouteIds.add(routeId);
+
+            normalized.add(WireframeScreen.builder()
+                    .screenName(screenName)
+                    .routeId(routeId)
+                    .platform(isBlank(source.getPlatform()) ? "Web" : source.getPlatform().trim())
+                    .purpose(isBlank(source.getPurpose())
+                            ? "Primary workflow screen for " + screenName + "."
+                            : source.getPurpose().trim())
+                    .layoutDescription(isBlank(source.getLayoutDescription())
+                            ? "Top navigation, primary content area, contextual actions, and status footer."
+                            : source.getLayoutDescription().trim())
+                    .uiComponents(source.getUiComponents() == null ? List.of() : source.getUiComponents())
+                    .interactions(source.getInteractions() == null ? List.of() : source.getInteractions())
+                    .apiBindings(source.getApiBindings() == null ? List.of() : source.getApiBindings())
+                    .nextScreenIds(source.getNextScreenIds() == null ? List.of() : source.getNextScreenIds())
+                    .screenHtml(source.getScreenHtml())
+                    .build());
+        }
+
+        for (int index = 0; index < normalized.size(); index++) {
+            WireframeScreen screen = normalized.get(index);
+            List<String> nextRouteIds = normalizeRouteList(screen.getNextScreenIds(), usedRouteIds);
+            if (nextRouteIds.isEmpty() && index < normalized.size() - 1) {
+                nextRouteIds = List.of(normalized.get(index + 1).getRouteId());
+            }
+            screen.setNextScreenIds(nextRouteIds);
+        }
+
+        for (WireframeScreen screen : normalized) {
+            if (isBlank(screen.getScreenHtml())) {
+                screen.setScreenHtml(buildDefaultScreenHtml(screen));
+            }
+        }
+        return normalized;
+    }
+
+    private List<String> normalizeRouteList(List<String> routeIds, Set<String> allowedRouteIds) {
+        if (routeIds == null || routeIds.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String value : routeIds) {
+            if (isBlank(value)) {
+                continue;
+            }
+            String route = slugify(value);
+            if (!route.isBlank() && allowedRouteIds.contains(route)) {
+                normalized.add(route);
+            }
+        }
+        return new ArrayList<>(normalized);
+    }
+
+    private String buildDefaultScreenHtml(WireframeScreen screen) {
+        String title = isBlank(screen.getScreenName()) ? "Screen" : screen.getScreenName().trim();
+        String purpose = isBlank(screen.getPurpose()) ? "Primary product screen." : screen.getPurpose().trim();
+        String platform = isBlank(screen.getPlatform()) ? "Web" : screen.getPlatform().trim();
+        String layout = isBlank(screen.getLayoutDescription())
+                ? "Top navigation, primary content area, contextual actions, and status footer."
+                : screen.getLayoutDescription().trim();
+        String components = screen.getUiComponents() == null || screen.getUiComponents().isEmpty()
+                ? "<li>Header</li><li>Content area</li><li>Primary action button</li><li>Status footer</li>"
+                : screen.getUiComponents().stream()
+                .map(component -> "<li>" + escapeHtml(component) + "</li>")
+                .reduce("", String::concat);
+        String apis = screen.getApiBindings() == null || screen.getApiBindings().isEmpty()
+                ? "<li>No API binding listed</li>"
+                : screen.getApiBindings().stream()
+                .map(api -> "<li><code>" + escapeHtml(api) + "</code></li>")
+                .reduce("", String::concat);
+        String nextButtons = screen.getNextScreenIds() == null || screen.getNextScreenIds().isEmpty()
+                ? "<button type=\"button\" disabled>End of flow</button>"
+                : screen.getNextScreenIds().stream()
+                .map(nextId -> "<button type=\"button\" data-nav-screen=\"" + escapeHtml(nextId) + "\">Go to " + escapeHtml(nextId) + "</button>")
+                .reduce("", String::concat);
+
+        return """
+                <div class="wf-app">
+                  <header class="wf-header">
+                    <span class="wf-chip">Prototype Screen</span>
+                    <h1>%s</h1>
+                    <p>%s</p>
+                  </header>
+                  <div class="wf-toolbar">
+                    <span class="wf-title">Screen Context</span>
+                    <div class="wf-stats">
+                      <span class="wf-stat">Platform: %s</span>
+                      <span class="wf-stat">Connected: %d</span>
+                    </div>
+                  </div>
+                  <main class="wf-main">
+                    <section class="wf-card">
+                      <h2>UI Components</h2>
+                      <ul>%s</ul>
+                    </section>
+                    <section class="wf-card">
+                      <h2>Layout Notes</h2>
+                      <p>%s</p>
+                    </section>
+                    <section class="wf-card">
+                      <h2>API Bindings</h2>
+                      <ul>%s</ul>
+                    </section>
+                    <section class="wf-card wf-callout">
+                      <h2>Interaction Hint</h2>
+                      <p>Use the actions below to move through connected screens in prototype mode.</p>
+                    </section>
+                  </main>
+                  <footer class="wf-footer">
+                    %s
+                  </footer>
+                </div>
+                """.formatted(
+                escapeHtml(title),
+                escapeHtml(purpose),
+                escapeHtml(platform),
+                screen.getNextScreenIds() == null ? 0 : screen.getNextScreenIds().size(),
+                components,
+                escapeHtml(layout),
+                apis,
+                nextButtons
+        );
+    }
+
+    private String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     private DesignStageResult executeSowStageWithFallback(UUID designId, DesignRequestDTO request) {
@@ -1979,7 +2138,9 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         } catch (Exception ex) {
             log.warn("DesignId={} stage={} failed. Falling back to deterministic wireframe.", designId, stageName, ex);
             designGenerationPublisher.publishStageFailed(designId.toString(), stageName, ex.getMessage());
-            List<WireframeScreen> fallbackScreens = buildFallbackWireframeScreens(extractComponentsForFallback(componentBreakdown));
+            List<WireframeScreen> fallbackScreens = enrichWireframeScreens(
+                    buildFallbackWireframeScreens(extractComponentsForFallback(componentBreakdown))
+            );
             String fallbackJson = toJsonSafely(
                     Map.of(
                             "wireframe_summary", "Wireframe generated from module and API design context.",

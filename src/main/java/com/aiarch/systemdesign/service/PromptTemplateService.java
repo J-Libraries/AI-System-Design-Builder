@@ -24,5 +24,21 @@ public interface PromptTemplateService {
 
     String wireframePrompt(String hldJson, String componentBreakdownJson, String lldJson);
 
+    String wireframeScreenListPrompt(String hldJson, String componentBreakdownJson, String lldJson);
+
+    String wireframeScreenHtmlPrompt(
+            String hldJson,
+            String componentBreakdownJson,
+            String lldJson,
+            String screenListJson,
+            String screenSpecJson
+    );
+
+    String wireframeScreenRepairPrompt(
+            String screenSpecJson,
+            String currentScreenJson,
+            String validationError
+    );
+
     String invalidJsonRetrySuffix();
 }
