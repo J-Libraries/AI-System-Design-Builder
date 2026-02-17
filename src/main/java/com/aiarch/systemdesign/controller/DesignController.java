@@ -9,6 +9,7 @@ import com.aiarch.systemdesign.service.DesignManagementService;
 import com.aiarch.systemdesign.service.DesignOrchestratorService;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -55,6 +56,15 @@ public class DesignController {
             @PathVariable("id") UUID designId,
             @Valid @RequestBody DesignRequestDTO request
     ) {
+        DesignRequestDTO existingRequest = designManagementService.getDesignRequest(designId);
+        if (isEquivalentRegenerationRequest(existingRequest, request)) {
+            DesignGenerationResponse response = DesignGenerationResponse.builder()
+                    .designId(designId)
+                    .status("READY")
+                    .build();
+            return ResponseEntity.ok(response);
+        }
+
         designOrchestratorService.initializeDesign(designId, request);
         designOrchestratorService.generateDesignAsync(designId, request);
         DesignGenerationResponse response = DesignGenerationResponse.builder()
@@ -62,6 +72,41 @@ public class DesignController {
                 .status("PROCESSING")
                 .build();
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
+    }
+
+    private boolean isEquivalentRegenerationRequest(DesignRequestDTO existing, DesignRequestDTO incoming) {
+        if (existing == null || incoming == null) {
+            return false;
+        }
+        return equalsIgnoreTrim(existing.getProductName(), incoming.getProductName())
+                && normalizeRequirements(existing.getFunctionalRequirements())
+                .equals(normalizeRequirements(incoming.getFunctionalRequirements()))
+                && Objects.equals(existing.getExpectedDAU(), incoming.getExpectedDAU())
+                && equalsIgnoreTrim(existing.getRegion(), incoming.getRegion())
+                && Objects.equals(existing.getScale(), incoming.getScale())
+                && Objects.equals(existing.getTargetPlatform(), incoming.getTargetPlatform())
+                && Objects.equals(existing.getDesignDomain(), incoming.getDesignDomain())
+                && equalsIgnoreTrim(existing.getTechStackChoice(), incoming.getTechStackChoice())
+                && equalsIgnoreTrim(existing.getDatabaseChoice(), incoming.getDatabaseChoice())
+                && equalsIgnoreTrim(existing.getServerType(), incoming.getServerType())
+                && equalsIgnoreTrim(existing.getContainerStrategy(), incoming.getContainerStrategy());
+    }
+
+    private List<String> normalizeRequirements(List<String> items) {
+        if (items == null) {
+            return List.of();
+        }
+        return items.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .toList();
+    }
+
+    private boolean equalsIgnoreTrim(String left, String right) {
+        String a = left == null ? "" : left.trim();
+        String b = right == null ? "" : right.trim();
+        return a.equalsIgnoreCase(b);
     }
 
     @GetMapping("/{id}/request")
