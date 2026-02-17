@@ -165,9 +165,19 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                    asset delivery, and observability.
                 12) If design domain is DEVOPS or SERVER_ARCHITECTURE, include deployment topology, CI/CD,
                    infra automation, runtime operations, security controls, and SLO governance.
-                13) If any capability is marked as "Not used", exclude related components, APIs, and strategy sections.
+                13) For backend/server-architecture/devops designs, produce an explicit cloud topology narrative with:
+                    - external systems
+                    - scheduler/cron and ingestion pipeline
+                    - transform/ETL layer
+                    - edge/network/security (DNS, WAF, certificates, load balancer, subnets, NAT)
+                    - compute/runtime cluster
+                    - data layer (relational + document + cache)
+                    - monitoring/trace/logging
+                    - invite-only access workflow (invite, OTP, token, permission checks)
+                    - backup/audit storage and secrets management.
+                14) If any capability is marked as "Not used", exclude related components, APIs, and strategy sections.
                     Example: if database is not used, avoid database_schema entries and DB-specific components.
-                14) Apply exclusion matrix strictly:
+                15) Apply exclusion matrix strictly:
                     - Preferred Stack = Not used => do not include backend business services, backend-only API contracts, or service-runtime internals.
                     - Preferred Database = Not used => do not include database_schemas entries or DB nodes/edges.
                     - Server Type = Not used => avoid server topology, host sizing, and server provisioning details.
@@ -387,6 +397,12 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                 5) Add node labels, technologies, and brief descriptions.
                 6) Add rough x/y positions so frontend can render a clean architecture layout.
                 7) Include a mermaid flowchart string for quick visual rendering.
+                8) For server architecture and devops-heavy systems, include detailed infrastructure nodes similar to
+                   production cloud diagrams: DNS, certificate manager, WAF, load balancer, scheduler, ETL/transform,
+                   runtime cluster/control plane, private workers/nodes, NAT/outbound, secrets manager, audit/backup storage.
+                9) Include both business/data flow and control/security flow edges with explicit labels.
+                10) Produce at least 24 nodes and at least 30 edges for infrastructure-centric designs.
+                11) Also return an "eraser_definition" string containing Eraser diagram DSL that matches the same architecture.
 
                 Return ONLY valid JSON. No markdown. No comments. No additional text.
                 Follow this exact schema exactly:
@@ -408,7 +424,8 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                     { "from": "api-gateway", "to": "user-service", "label": "REST" },
                     { "source": "user-service", "target": "postgresql", "label": "SQL" }
                   ],
-                  "mermaid": "flowchart LR\\nclient[Client] --> gateway[API Gateway]"
+                  "mermaid": "flowchart LR\\nclient[Client] --> gateway[API Gateway]",
+                  "eraser_definition": "title Example\\ndirection right\\n..."
                 }
                 """.formatted(hldJson, lldJson);
     }

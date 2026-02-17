@@ -63,7 +63,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
     private static final TypeReference<List<TaskBreakdownItem>> TASK_BREAKDOWN_TYPE = new TypeReference<>() { };
     private static final TypeReference<List<WireframeScreen>> WIREFRAME_SCREEN_TYPE = new TypeReference<>() { };
     private static final int MIN_API_CONTRACTS = 20;
-    private static final int MIN_VISUAL_NODES = 10;
+    private static final int MIN_VISUAL_NODES = 16;
     private static final int MIN_TASKS_PER_MODULE = 12;
     private static final int BASE_X_SPACING = 280;
     private static final int BASE_Y_SPACING = 150;
@@ -316,18 +316,30 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
     }
 
     private SystemDesignDocument enrichDocumentForRequest(SystemDesignDocument document, DesignRequestDTO request) {
-        if (document == null || request == null || !isMobileContext(request)) {
-            return document;
-        }
-
-        boolean cameraRequested = isCameraRequested(request);
-        if (!cameraRequested) {
+        if (document == null || request == null) {
             return document;
         }
 
         List<Component> components = document.getComponents() == null
                 ? new ArrayList<>()
                 : new ArrayList<>(document.getComponents());
+
+        if (isInfrastructureFocusedContext(request)) {
+            components = ensureInfrastructureComponentCoverage(components);
+            components = enrichComponents(components);
+            document.setComponents(components);
+            document.setDiagramMetadata(ensureInfrastructureDiagramCoverage(document.getDiagramMetadata(), components));
+            document.setHld(appendInfrastructureHldDetail(document.getHld()));
+        }
+
+        if (!isMobileContext(request)) {
+            return document;
+        }
+
+        if (!isCameraRequested(request)) {
+            return document;
+        }
+
         components = ensureCameraComponentCoverage(components);
         components = enrichComponents(components);
         document.setComponents(components);
@@ -358,6 +370,231 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
 
         document.setHld(appendCameraHldDetail(document.getHld()));
         return document;
+    }
+
+    private boolean isInfrastructureFocusedContext(DesignRequestDTO request) {
+        if (request == null || request.getDesignDomain() == null) {
+            return false;
+        }
+        return request.getDesignDomain() == DesignDomain.SERVER_ARCHITECTURE
+                || request.getDesignDomain() == DesignDomain.DEVOPS
+                || request.getDesignDomain() == DesignDomain.BACKEND;
+    }
+
+    private List<Component> ensureInfrastructureComponentCoverage(List<Component> components) {
+        List<Component> result = components == null ? new ArrayList<>() : new ArrayList<>(components);
+        ensureComponentByName(
+                result,
+                "Data Ingestion Scheduler",
+                "worker",
+                "Triggers hourly ingestion jobs for external data pull and transformation pipeline.",
+                "Implement with EventBridge/Cron + idempotent job tracking and failure retry orchestration.",
+                List.of("PCC Connector", "Transformation Service", "Observability Service")
+        );
+        ensureComponentByName(
+                result,
+                "Permission Validator",
+                "service",
+                "Validates facility-level access permissions before serving dashboard datasets.",
+                "Use policy-based authorization checks with cached entitlements and deny-by-default behavior.",
+                List.of("User Identity Service", "DocumentDB User Store", "Audit Logger")
+        );
+        ensureComponentByName(
+                result,
+                "Invite & OTP Access Service",
+                "service",
+                "Handles invite-only onboarding, OTP verification, token issuance, and audit-safe sign-up flows.",
+                "Split into invite, OTP, and token modules with SES integration and secure one-time links.",
+                List.of("SES Notification", "DocumentDB User Store", "Auth Gateway")
+        );
+        return result;
+    }
+
+    private void ensureComponentByName(
+            List<Component> components,
+            String name,
+            String type,
+            String responsibility,
+            String implementationApproach,
+            List<String> dependencies
+    ) {
+        for (Component component : components) {
+            if (component == null || component.getName() == null) {
+                continue;
+            }
+            if (containsWord(component.getName(), name)) {
+                if (component.getType() == null || component.getType().isBlank()) {
+                    component.setType(type);
+                }
+                if (component.getResponsibility() == null || component.getResponsibility().length() < 80) {
+                    component.setResponsibility(responsibility);
+                }
+                if (component.getImplementationApproach() == null || component.getImplementationApproach().length() < 80) {
+                    component.setImplementationApproach(implementationApproach);
+                }
+                component.setDependencies(mergeUnique(component.getDependencies(), dependencies));
+                return;
+            }
+        }
+
+        int nextOrder = 1;
+        for (Component component : components) {
+            nextOrder = Math.max(nextOrder, positiveOr(component == null ? null : component.getBuildOrder(), 0) + 1);
+        }
+        components.add(Component.builder()
+                .name(name)
+                .type(type)
+                .responsibility(responsibility)
+                .implementationApproach(implementationApproach)
+                .dependencies(dependencies)
+                .buildOrder(nextOrder)
+                .build());
+    }
+
+    private DiagramMetadata ensureInfrastructureDiagramCoverage(DiagramMetadata rawMetadata, List<Component> components) {
+        Map<String, DiagramNode> nodesById = new LinkedHashMap<>();
+        if (rawMetadata != null && rawMetadata.getNodes() != null) {
+            for (DiagramNode rawNode : rawMetadata.getNodes()) {
+                DiagramNode normalized = normalizeNode(rawNode);
+                if (normalized != null) {
+                    nodesById.put(normalized.getId(), normalized);
+                }
+            }
+        }
+
+        ensureDefaultNode(nodesById, "users-super-admin", "client", "Super Admin", "Web User", "Invite and policy management owner");
+        ensureDefaultNode(nodesById, "users-facility", "client", "Facility Users", "Web User", "View-only access to permitted facilities");
+        ensureDefaultNode(nodesById, "web-dashboard", "client", "Analytics Dashboard", "React", "UI for facility trends and census dashboards");
+        ensureDefaultNode(nodesById, "route53-dns", "dns", "Route53 / DNS", "Route53", "Public DNS routing");
+        ensureDefaultNode(nodesById, "certificate-manager", "security", "Certificate Manager", "ACM", "TLS certificate provisioning and rotation");
+        ensureDefaultNode(nodesById, "aws-waf", "security", "AWS WAF", "WAF", "Request filtering and attack prevention");
+        ensureDefaultNode(nodesById, "application-load-balancer", "gateway", "Application Load Balancer", "ALB", "Ingress traffic balancing");
+        ensureDefaultNode(nodesById, "eks-control-plane", "container", "EKS Control Plane", "EKS", "Orchestrates worker node workloads");
+        ensureDefaultNode(nodesById, "eks-node-group", "container", "EKS Node Group", "EC2 / K8s Nodes", "Runs backend pods and workers");
+        ensureDefaultNode(nodesById, "nat-gateway", "network", "NAT Gateway", "NAT", "Secure outbound connectivity for private nodes");
+
+        ensureDefaultNode(nodesById, "scheduler-eventbridge", "scheduler", "Hourly Scheduler", "EventBridge", "Triggers hourly PCC data ingestion");
+        ensureDefaultNode(nodesById, "data-fetcher", "worker", "PCC Data Fetcher", "Lambda/Job", "Pulls source data from external PCC endpoint");
+        ensureDefaultNode(nodesById, "transform-service", "worker", "Transformation Service", "Redgate CLI / ETL", "Transforms source payload to analytics schema");
+        ensureDefaultNode(nodesById, "external-pcc-server", "external", "PCC External Server", "External API", "Source system for facility data");
+
+        ensureDefaultNode(nodesById, "invite-service", "service", "User Invite Service", "Spring Service", "Creates invite-only onboarding links");
+        ensureDefaultNode(nodesById, "otp-service", "service", "OTP Verification Service", "Spring Service", "Validates OTP before account activation");
+        ensureDefaultNode(nodesById, "token-service", "service", "Token Service", "JWT/Auth", "Issues and rotates access/refresh tokens");
+        ensureDefaultNode(nodesById, "permission-validator", "service", "Permission Validator", "Policy Engine", "Enforces facility-level access control");
+        ensureDefaultNode(nodesById, "ses-email", "notification", "SES Email Service", "AWS SES", "Sends invites and OTP messages");
+
+        ensureDefaultNode(nodesById, "postgres-facility", "database", "PostgreSQL Facility Data", "PostgreSQL", "Patient, census, finance and trend analytics");
+        ensureDefaultNode(nodesById, "documentdb-users", "database", "DocumentDB User Data", "DocumentDB", "Credentials, tokens and permission documents");
+        ensureDefaultNode(nodesById, "redis-cache", "cache", "Redis Cache", "Redis", "Dashboard query caching and hot aggregations");
+
+        ensureDefaultNode(nodesById, "cloudwatch", "observability", "CloudWatch", "CloudWatch", "Metrics, logs and alerting");
+        ensureDefaultNode(nodesById, "xray", "observability", "X-Ray", "AWS X-Ray", "Distributed tracing for data and auth flows");
+        ensureDefaultNode(nodesById, "secrets-manager", "security", "Secrets Manager", "AWS Secrets Manager", "Secret rotation and secure config injection");
+        ensureDefaultNode(nodesById, "s3-audit-backup", "storage", "S3 Audit & Backup", "S3", "Audit trail and backup snapshots");
+
+        if (components != null) {
+            for (Component component : components) {
+                if (component == null || component.getName() == null || component.getName().isBlank()) {
+                    continue;
+                }
+                String id = slugify(component.getName());
+                if (id.isBlank()) {
+                    continue;
+                }
+                nodesById.putIfAbsent(
+                        id,
+                        createNode(
+                                id,
+                                component.getType() == null ? "service" : component.getType(),
+                                component.getName(),
+                                defaultTechnology(component.getType()),
+                                component.getResponsibility() == null ? "Runtime architecture component" : component.getResponsibility(),
+                                normalizeLayer(component.getType())
+                        )
+                );
+            }
+        }
+
+        List<DiagramNode> nodes = new ArrayList<>(nodesById.values());
+        List<DiagramEdge> baseEdges = normalizeEdges(
+                rawMetadata == null ? null : rawMetadata.getEdges(),
+                nodesById.keySet(),
+                components
+        );
+
+        Map<String, DiagramEdge> dedupedEdges = new LinkedHashMap<>();
+        for (DiagramEdge edge : baseEdges) {
+            dedupedEdges.put(edgeKey(edge), edge);
+        }
+
+        addEdgeIfAbsent(dedupedEdges, "users-super-admin", "web-dashboard", "Portal Access");
+        addEdgeIfAbsent(dedupedEdges, "users-facility", "web-dashboard", "Portal Access");
+        addEdgeIfAbsent(dedupedEdges, "web-dashboard", "route53-dns", "DNS Lookup");
+        addEdgeIfAbsent(dedupedEdges, "route53-dns", "certificate-manager", "TLS Cert");
+        addEdgeIfAbsent(dedupedEdges, "route53-dns", "aws-waf", "Route Traffic");
+        addEdgeIfAbsent(dedupedEdges, "aws-waf", "application-load-balancer", "Filtered HTTPS");
+        addEdgeIfAbsent(dedupedEdges, "application-load-balancer", "eks-control-plane", "Ingress");
+        addEdgeIfAbsent(dedupedEdges, "eks-control-plane", "eks-node-group", "Schedule Pods");
+        addEdgeIfAbsent(dedupedEdges, "eks-node-group", "nat-gateway", "Outbound");
+        addEdgeIfAbsent(dedupedEdges, "nat-gateway", "external-pcc-server", "External API");
+
+        addEdgeIfAbsent(dedupedEdges, "scheduler-eventbridge", "data-fetcher", "Hourly Trigger");
+        addEdgeIfAbsent(dedupedEdges, "data-fetcher", "external-pcc-server", "Fetch PCC Data");
+        addEdgeIfAbsent(dedupedEdges, "data-fetcher", "transform-service", "Raw Payload");
+        addEdgeIfAbsent(dedupedEdges, "transform-service", "postgres-facility", "Load Transformed Data");
+
+        addEdgeIfAbsent(dedupedEdges, "application-load-balancer", "invite-service", "Invite APIs");
+        addEdgeIfAbsent(dedupedEdges, "application-load-balancer", "otp-service", "OTP APIs");
+        addEdgeIfAbsent(dedupedEdges, "application-load-balancer", "token-service", "Auth APIs");
+        addEdgeIfAbsent(dedupedEdges, "application-load-balancer", "permission-validator", "Access APIs");
+
+        addEdgeIfAbsent(dedupedEdges, "invite-service", "ses-email", "Send Invite");
+        addEdgeIfAbsent(dedupedEdges, "otp-service", "ses-email", "Send OTP");
+        addEdgeIfAbsent(dedupedEdges, "otp-service", "documentdb-users", "Validate OTP");
+        addEdgeIfAbsent(dedupedEdges, "token-service", "documentdb-users", "Token Persistence");
+        addEdgeIfAbsent(dedupedEdges, "permission-validator", "documentdb-users", "Permission Lookup");
+        addEdgeIfAbsent(dedupedEdges, "permission-validator", "postgres-facility", "Authorized Query");
+        addEdgeIfAbsent(dedupedEdges, "permission-validator", "redis-cache", "Cached Access Data");
+
+        addEdgeIfAbsent(dedupedEdges, "eks-node-group", "cloudwatch", "Logs/Metrics");
+        addEdgeIfAbsent(dedupedEdges, "eks-node-group", "xray", "Trace Spans");
+        addEdgeIfAbsent(dedupedEdges, "eks-node-group", "secrets-manager", "Read Secrets");
+        addEdgeIfAbsent(dedupedEdges, "eks-node-group", "s3-audit-backup", "Audit/Backup");
+        addEdgeIfAbsent(dedupedEdges, "data-fetcher", "cloudwatch", "Job Metrics");
+        addEdgeIfAbsent(dedupedEdges, "data-fetcher", "xray", "Pipeline Traces");
+        addEdgeIfAbsent(dedupedEdges, "transform-service", "cloudwatch", "ETL Logs");
+
+        assignPositions(nodes);
+
+        String mermaid = rawMetadata == null ? "" : rawMetadata.getMermaid();
+        if (mermaid == null || mermaid.isBlank()) {
+            mermaid = buildMermaid(nodes, new ArrayList<>(dedupedEdges.values()));
+        }
+
+        return DiagramMetadata.builder()
+                .nodes(nodes)
+                .edges(new ArrayList<>(dedupedEdges.values()))
+                .mermaid(mermaid)
+                .build();
+    }
+
+    private String appendInfrastructureHldDetail(String hldText) {
+        String base = hldText == null ? "" : hldText.trim();
+        if (base.toLowerCase().contains("infrastructure topology")) {
+            return base;
+        }
+        String infrastructureDetail = """
+                
+                Infrastructure Topology Deep Dive:
+                - External Ingestion: hourly scheduler triggers data-fetch job against PCC external server, followed by transformation and persistence.
+                - Edge/Security: DNS, certificate management, WAF filtering, and load balancer ingress before workload routing.
+                - Runtime: containerized application services and workers on orchestrated compute nodes with private outbound path via NAT.
+                - Data Plane: relational store for facility analytics, document store for identity/permission artifacts, and Redis for low-latency reads.
+                - Access Control: invite-only onboarding, OTP validation, token issuance, and facility-level permission validator on every read path.
+                - Operations: centralized logging/metrics/tracing, secrets management, and S3-backed audit/backup lifecycle.
+                """;
+        return (base + infrastructureDetail).trim();
     }
 
     private boolean isMobileContext(DesignRequestDTO request) {
@@ -2162,6 +2399,39 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             return "service";
         }
         String normalized = raw.trim().toLowerCase();
+        if (normalized.contains("external")) {
+            return "external";
+        }
+        if (normalized.contains("dns") || normalized.contains("route53")) {
+            return "dns";
+        }
+        if (normalized.contains("waf")
+                || normalized.contains("certificate")
+                || normalized.contains("secret")
+                || normalized.contains("security")) {
+            return "security";
+        }
+        if (normalized.contains("load balancer") || normalized.contains("alb") || normalized.contains("elb")) {
+            return "gateway";
+        }
+        if (normalized.contains("container")
+                || normalized.contains("eks")
+                || normalized.contains("kubernetes")
+                || normalized.contains("node group")
+                || normalized.contains("cluster")) {
+            return "container";
+        }
+        if (normalized.contains("nat") || normalized.contains("network")) {
+            return "network";
+        }
+        if (normalized.contains("scheduler")
+                || normalized.contains("cron")
+                || normalized.contains("eventbridge")) {
+            return "scheduler";
+        }
+        if (normalized.contains("etl") || normalized.contains("transform")) {
+            return "worker";
+        }
         if (normalized.contains("gateway") || normalized.contains("ingress") || normalized.contains("proxy")) {
             return "gateway";
         }
@@ -2186,6 +2456,9 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         if (normalized.contains("worker") || normalized.contains("consumer")) {
             return "worker";
         }
+        if (normalized.contains("notification") || normalized.contains("ses") || normalized.contains("email")) {
+            return "notification";
+        }
         if (normalized.contains("monitor") || normalized.contains("observability") || normalized.contains("trace")) {
             return "observability";
         }
@@ -2197,13 +2470,23 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
 
     private String normalizeLayer(String type) {
         String normalized = type == null ? "" : type.toLowerCase();
-        if (normalized.equals("client") || normalized.equals("gateway") || normalized.equals("cdn")) {
+        if (normalized.equals("client")
+                || normalized.equals("gateway")
+                || normalized.equals("cdn")
+                || normalized.equals("dns")
+                || normalized.equals("external")) {
             return "EDGE";
+        }
+        if (normalized.equals("security") || normalized.equals("network")) {
+            return "OPS";
+        }
+        if (normalized.equals("container")) {
+            return "APP";
         }
         if (normalized.equals("database") || normalized.equals("cache") || normalized.equals("storage")) {
             return "DATA";
         }
-        if (normalized.equals("queue") || normalized.equals("worker")) {
+        if (normalized.equals("queue") || normalized.equals("worker") || normalized.equals("scheduler")) {
             return "ASYNC";
         }
         if (normalized.equals("observability")) {
@@ -2214,13 +2497,20 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
 
     private String defaultTechnology(String type) {
         return switch (normalizeType(type)) {
+            case "external" -> "External API";
             case "client" -> "Web / Mobile";
+            case "dns" -> "Route53 / DNS";
+            case "security" -> "WAF / ACM / Secrets";
             case "cdn" -> "CloudFront / Cloud CDN";
             case "gateway" -> "Kong / Nginx";
+            case "container" -> "EKS / Kubernetes";
+            case "network" -> "NAT / VPC";
+            case "scheduler" -> "EventBridge / Cron";
             case "database" -> "PostgreSQL";
             case "cache" -> "Redis";
             case "queue" -> "Kafka / SQS";
             case "worker" -> "Spring Workers";
+            case "notification" -> "SES / SMTP";
             case "observability" -> "Prometheus / Grafana";
             case "storage" -> "S3 / GCS";
             default -> "Spring Boot";
@@ -2280,6 +2570,14 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         String type = normalizeType(rawType);
         if (Objects.equals(type, "gateway")) {
             return "gateway";
+        }
+        if (Objects.equals(type, "dns")
+                || Objects.equals(type, "security")
+                || Objects.equals(type, "network")
+                || Objects.equals(type, "container")
+                || Objects.equals(type, "notification")
+                || Objects.equals(type, "external")) {
+            return "ops";
         }
         if (Objects.equals(type, "database") || Objects.equals(type, "cache") || Objects.equals(type, "storage")) {
             return "data";
