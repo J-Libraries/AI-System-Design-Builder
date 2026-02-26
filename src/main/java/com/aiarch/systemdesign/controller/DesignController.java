@@ -54,8 +54,7 @@ public class DesignController {
     @PostMapping("/{id}/regenerate")
     public ResponseEntity<DesignGenerationResponse> regenerateDesign(
             @PathVariable("id") UUID designId,
-            @Valid @RequestBody DesignRequestDTO request
-    ) {
+            @Valid @RequestBody DesignRequestDTO request) {
         DesignRequestDTO existingRequest = designManagementService.getDesignRequest(designId);
         if (isEquivalentRegenerationRequest(existingRequest, request)) {
             DesignGenerationResponse response = DesignGenerationResponse.builder()
@@ -80,7 +79,7 @@ public class DesignController {
         }
         return equalsIgnoreTrim(existing.getProductName(), incoming.getProductName())
                 && normalizeRequirements(existing.getFunctionalRequirements())
-                .equals(normalizeRequirements(incoming.getFunctionalRequirements()))
+                        .equals(normalizeRequirements(incoming.getFunctionalRequirements()))
                 && Objects.equals(existing.getExpectedDAU(), incoming.getExpectedDAU())
                 && equalsIgnoreTrim(existing.getRegion(), incoming.getRegion())
                 && Objects.equals(existing.getScale(), incoming.getScale())
@@ -128,8 +127,7 @@ public class DesignController {
     @PutMapping("/{id}/document")
     public ResponseEntity<SystemDesignDocument> updateDocument(
             @PathVariable("id") UUID designId,
-            @RequestBody SystemDesignDocument document
-    ) {
+            @RequestBody SystemDesignDocument document) {
         return ResponseEntity.ok(designDocumentService.updateDocument(designId, document));
     }
 
@@ -158,5 +156,17 @@ public class DesignController {
                 .contentType(MediaType.parseMediaType("text/csv"))
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=task-breakdown-" + designId + ".csv")
                 .body(csvData);
+    }
+
+    @PostMapping("/{id}/wireframe/iterate")
+    public ResponseEntity<DesignGenerationResponse> iterateWireframe(
+            @PathVariable("id") UUID designId,
+            @Valid @RequestBody com.aiarch.systemdesign.dto.WireframeIterationRequest request) {
+        designOrchestratorService.iterateWireframe(designId, request.getPrompt());
+        DesignGenerationResponse response = DesignGenerationResponse.builder()
+                .designId(designId)
+                .status("PROCESSING")
+                .build();
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
 }

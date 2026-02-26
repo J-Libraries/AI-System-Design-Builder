@@ -54,14 +54,22 @@ import org.springframework.transaction.annotation.Transactional;
 public class DesignOrchestratorServiceImpl implements DesignOrchestratorService {
 
     private static final Logger log = LoggerFactory.getLogger(DesignOrchestratorServiceImpl.class);
-    private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() { };
-    private static final TypeReference<List<Component>> COMPONENT_LIST_TYPE = new TypeReference<>() { };
-    private static final TypeReference<List<ComponentLLD>> COMPONENT_LLD_LIST_TYPE = new TypeReference<>() { };
-    private static final TypeReference<List<ApiContract>> API_CONTRACT_LIST_TYPE = new TypeReference<>() { };
-    private static final TypeReference<List<DatabaseSchema>> DATABASE_SCHEMA_LIST_TYPE = new TypeReference<>() { };
-    private static final TypeReference<List<DataFlowScenario>> DATA_FLOW_LIST_TYPE = new TypeReference<>() { };
-    private static final TypeReference<List<TaskBreakdownItem>> TASK_BREAKDOWN_TYPE = new TypeReference<>() { };
-    private static final TypeReference<List<WireframeScreen>> WIREFRAME_SCREEN_TYPE = new TypeReference<>() { };
+    private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
+    };
+    private static final TypeReference<List<Component>> COMPONENT_LIST_TYPE = new TypeReference<>() {
+    };
+    private static final TypeReference<List<ComponentLLD>> COMPONENT_LLD_LIST_TYPE = new TypeReference<>() {
+    };
+    private static final TypeReference<List<ApiContract>> API_CONTRACT_LIST_TYPE = new TypeReference<>() {
+    };
+    private static final TypeReference<List<DatabaseSchema>> DATABASE_SCHEMA_LIST_TYPE = new TypeReference<>() {
+    };
+    private static final TypeReference<List<DataFlowScenario>> DATA_FLOW_LIST_TYPE = new TypeReference<>() {
+    };
+    private static final TypeReference<List<TaskBreakdownItem>> TASK_BREAKDOWN_TYPE = new TypeReference<>() {
+    };
+    private static final TypeReference<List<WireframeScreen>> WIREFRAME_SCREEN_TYPE = new TypeReference<>() {
+    };
     private static final int MIN_API_CONTRACTS = 20;
     private static final int MIN_VISUAL_NODES = 16;
     private static final int MIN_TASKS_PER_MODULE = 12;
@@ -135,8 +143,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         log.info(
                 "Starting async design orchestration for designId={} product={}",
                 designId,
-                request.getProductName()
-        );
+                request.getProductName());
 
         try {
             DesignStageResult sow = executeSowStageWithFallback(designId, request);
@@ -145,60 +152,51 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     designId,
                     "COMPONENT_BREAKDOWN",
                     30,
-                    () -> aiStageService.generateComponentBreakdown(hld)
-            );
+                    () -> aiStageService.generateComponentBreakdown(hld));
             List<Component> componentsForFallback = extractComponentsForFallback(componentBreakdown);
             DesignStageResult lld = executeStage(
                     designId,
                     "LLD",
                     45,
-                    () -> aiStageService.generateLLD(componentBreakdown)
-            );
+                    () -> aiStageService.generateLLD(componentBreakdown));
 
             CompletableFuture<DesignStageResult> scalingFuture = CompletableFuture.supplyAsync(
                     () -> executeStage(
                             designId,
                             "SCALING_STRATEGY",
                             75,
-                            () -> aiStageService.generateScalingStrategy(hld)
-                    ),
-                    orchestratorTaskExecutor
-            );
+                            () -> aiStageService.generateScalingStrategy(hld)),
+                    orchestratorTaskExecutor);
             CompletableFuture<DesignStageResult> failureFuture = CompletableFuture.supplyAsync(
                     () -> executeStage(
                             designId,
                             "FAILURE_HANDLING",
                             85,
-                            () -> aiStageService.generateFailureHandling(hld)
-                    ),
-                    orchestratorTaskExecutor
-            );
+                            () -> aiStageService.generateFailureHandling(hld)),
+                    orchestratorTaskExecutor);
 
             DesignStageResult dataFlow = executeStage(
                     designId,
                     "DATA_FLOW",
                     60,
-                    () -> aiStageService.generateDataFlow(hld, lld)
-            );
+                    () -> aiStageService.generateDataFlow(hld, lld));
             DesignStageResult diagramMetadata = executeDiagramStageWithFallback(
                     designId,
                     hld,
                     lld,
-                    componentsForFallback
-            );
+                    componentsForFallback);
             DesignStageResult taskBreakdown = executeTaskBreakdownStageWithFallback(
                     designId,
                     hld,
                     componentBreakdown,
                     lld,
-                    componentsForFallback
-            );
+                    componentsForFallback);
             DesignStageResult wireframe = executeWireframeStageWithFallback(
                     designId,
                     hld,
                     componentBreakdown,
-                    lld
-            );
+                    lld,
+                    request);
             DesignStageResult scaling = scalingFuture.join();
             DesignStageResult failureHandling = failureFuture.join();
 
@@ -213,8 +211,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     diagramMetadata.getContent(),
                     taskBreakdown.getContent(),
                     wireframe.getContent(),
-                    request
-            );
+                    request);
 
             JsonNode finalDocument = documentMapper.toJsonNode(document);
             JsonNode requestSnapshot = objectMapper.valueToTree(request);
@@ -223,10 +220,10 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                             .id(designId)
                             .productName(request.getProductName())
                             .version(
-                                    systemDesignRepository.findTopByProductNameOrderByVersionDesc(request.getProductName())
+                                    systemDesignRepository
+                                            .findTopByProductNameOrderByVersionDesc(request.getProductName())
                                             .map(existing -> existing.getVersion() + 1)
-                                            .orElse(1)
-                            )
+                                            .orElse(1))
                             .requestJson(requestSnapshot)
                             .build());
             systemDesign.setProductName(request.getProductName());
@@ -237,15 +234,13 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     designId.toString(),
                     "ORCHESTRATION",
                     100,
-                    finalDocument.toString()
-            );
+                    finalDocument.toString());
 
             log.info(
                     "Completed orchestration for designId={} product={} version={}",
                     designId,
                     request.getProductName(),
-                    systemDesign.getVersion()
-            );
+                    systemDesign.getVersion());
             return CompletableFuture.completedFuture(null);
         } catch (Exception ex) {
             log.error("Design orchestration failed for designId={}", designId, ex);
@@ -253,8 +248,72 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             designGenerationPublisher.publishStageFailed(
                     designId.toString(),
                     "ORCHESTRATION",
-                    ex.getClass().getSimpleName() + ": " + (ex.getMessage() == null ? "Unknown error" : ex.getMessage())
-            );
+                    ex.getClass().getSimpleName() + ": "
+                            + (ex.getMessage() == null ? "Unknown error" : ex.getMessage()));
+            return CompletableFuture.failedFuture(ex);
+        }
+    }
+
+    @Override
+    @Async("designGenerationTaskExecutor")
+    @Transactional
+    public CompletableFuture<Void> iterateWireframe(UUID designId, String userPrompt) {
+        log.info("Starting async wireframe iteration for designId={} prompt={}", designId, userPrompt);
+
+        SystemDesign systemDesign = systemDesignRepository.findById(designId)
+                .orElseThrow(() -> new IllegalArgumentException("Design not found: " + designId));
+
+        SystemDesignDocument document = documentMapper.fromJsonNode(systemDesign.getDocumentJson());
+
+        try {
+            // Send overall status update
+            designGenerationPublisher.publishStageCompleted(designId.toString(), "WIREFRAME_ITERATION", 10,
+                    "Iteration started...");
+
+            String hldJson = objectMapper.writeValueAsString(Map.of(
+                    "overview", document.getOverview() != null ? document.getOverview() : "",
+                    "hld", document.getHld() != null ? document.getHld() : "",
+                    "api_contracts", document.getApiContracts() != null ? document.getApiContracts() : List.of()));
+
+            String componentJson = objectMapper.writeValueAsString(Map.of(
+                    "components", document.getComponents() != null ? document.getComponents() : List.of()));
+
+            String lldJson = objectMapper.writeValueAsString(Map.of(
+                    "lld", document.getLld() != null ? document.getLld() : List.of()));
+
+            String currentWireframeJson = objectMapper.writeValueAsString(Map.of(
+                    "wireframe_summary", document.getWireframeSummary() != null ? document.getWireframeSummary() : "",
+                    "screens", document.getWireframeScreens() != null ? document.getWireframeScreens() : List.of()));
+
+            DesignStageResult iterationResult = aiStageService.iterateWireframe(
+                    hldJson,
+                    componentJson,
+                    lldJson,
+                    currentWireframeJson,
+                    userPrompt);
+
+            JsonNode wireframeNode = readJson(iterationResult.getContent());
+            document.setWireframeSummary(resolveWireframeSummary(wireframeNode));
+            document.setWireframeScreens(resolveWireframeScreens(wireframeNode));
+
+            JsonNode finalDocument = documentMapper.toJsonNode(document);
+            systemDesign.setDocumentJson(finalDocument);
+            systemDesignRepository.save(systemDesign);
+
+            designGenerationPublisher.publishStageCompleted(
+                    designId.toString(),
+                    "WIREFRAME_ITERATION",
+                    100,
+                    finalDocument.toString());
+
+            log.info("Completed wireframe iteration for designId={}", designId);
+            return CompletableFuture.completedFuture(null);
+        } catch (Exception ex) {
+            log.error("Wireframe iteration failed for designId={}", designId, ex);
+            designGenerationPublisher.publishStageFailed(
+                    designId.toString(),
+                    "WIREFRAME_ITERATION",
+                    ex.getMessage());
             return CompletableFuture.failedFuture(ex);
         }
     }
@@ -270,8 +329,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             String diagramJson,
             String taskBreakdownJson,
             String wireframeJson,
-            DesignRequestDTO request
-    ) {
+            DesignRequestDTO request) {
         JsonNode sowNode = readJson(sowJson);
         JsonNode hldNode = readJson(hldJson);
         JsonNode componentNode = readJson(componentJson);
@@ -286,8 +344,10 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         List<Component> components = enrichComponents(readList(componentNode, "components", COMPONENT_LIST_TYPE));
         List<ApiContract> apiContracts = readList(hldNode, "api_contracts", API_CONTRACT_LIST_TYPE);
         List<ApiContract> enrichedApiContracts = ensureRichApiContracts(apiContracts, components);
-        DiagramMetadata diagramMetadata = enrichDiagramMetadata(readObject(diagramNode, DiagramMetadata.class), components);
-        List<TaskBreakdownItem> taskBreakdown = normalizeTaskBreakdown(readList(taskBreakdownNode, "task_breakdown", TASK_BREAKDOWN_TYPE));
+        DiagramMetadata diagramMetadata = enrichDiagramMetadata(readObject(diagramNode, DiagramMetadata.class),
+                components);
+        List<TaskBreakdownItem> taskBreakdown = normalizeTaskBreakdown(
+                readList(taskBreakdownNode, "task_breakdown", TASK_BREAKDOWN_TYPE));
         if (taskBreakdown.isEmpty()) {
             taskBreakdown = buildFallbackTaskBreakdown(components);
         }
@@ -389,24 +449,21 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 "worker",
                 "Triggers hourly ingestion jobs for external data pull and transformation pipeline.",
                 "Implement with EventBridge/Cron + idempotent job tracking and failure retry orchestration.",
-                List.of("PCC Connector", "Transformation Service", "Observability Service")
-        );
+                List.of("PCC Connector", "Transformation Service", "Observability Service"));
         ensureComponentByName(
                 result,
                 "Permission Validator",
                 "service",
                 "Validates facility-level access permissions before serving dashboard datasets.",
                 "Use policy-based authorization checks with cached entitlements and deny-by-default behavior.",
-                List.of("User Identity Service", "DocumentDB User Store", "Audit Logger")
-        );
+                List.of("User Identity Service", "DocumentDB User Store", "Audit Logger"));
         ensureComponentByName(
                 result,
                 "Invite & OTP Access Service",
                 "service",
                 "Handles invite-only onboarding, OTP verification, token issuance, and audit-safe sign-up flows.",
                 "Split into invite, OTP, and token modules with SES integration and secure one-time links.",
-                List.of("SES Notification", "DocumentDB User Store", "Auth Gateway")
-        );
+                List.of("SES Notification", "DocumentDB User Store", "Auth Gateway"));
         return result;
     }
 
@@ -416,8 +473,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             String type,
             String responsibility,
             String implementationApproach,
-            List<String> dependencies
-    ) {
+            List<String> dependencies) {
         for (Component component : components) {
             if (component == null || component.getName() == null) {
                 continue;
@@ -429,7 +485,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 if (component.getResponsibility() == null || component.getResponsibility().length() < 80) {
                     component.setResponsibility(responsibility);
                 }
-                if (component.getImplementationApproach() == null || component.getImplementationApproach().length() < 80) {
+                if (component.getImplementationApproach() == null
+                        || component.getImplementationApproach().length() < 80) {
                     component.setImplementationApproach(implementationApproach);
                 }
                 component.setDependencies(mergeUnique(component.getDependencies(), dependencies));
@@ -451,7 +508,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 .build());
     }
 
-    private DiagramMetadata ensureInfrastructureDiagramCoverage(DiagramMetadata rawMetadata, List<Component> components) {
+    private DiagramMetadata ensureInfrastructureDiagramCoverage(DiagramMetadata rawMetadata,
+            List<Component> components) {
         Map<String, DiagramNode> nodesById = new LinkedHashMap<>();
         if (rawMetadata != null && rawMetadata.getNodes() != null) {
             for (DiagramNode rawNode : rawMetadata.getNodes()) {
@@ -462,36 +520,61 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             }
         }
 
-        ensureDefaultNode(nodesById, "users-super-admin", "client", "Super Admin", "Web User", "Invite and policy management owner");
-        ensureDefaultNode(nodesById, "users-facility", "client", "Facility Users", "Web User", "View-only access to permitted facilities");
-        ensureDefaultNode(nodesById, "web-dashboard", "client", "Analytics Dashboard", "React", "UI for facility trends and census dashboards");
+        ensureDefaultNode(nodesById, "users-super-admin", "client", "Super Admin", "Web User",
+                "Invite and policy management owner");
+        ensureDefaultNode(nodesById, "users-facility", "client", "Facility Users", "Web User",
+                "View-only access to permitted facilities");
+        ensureDefaultNode(nodesById, "web-dashboard", "client", "Analytics Dashboard", "React",
+                "UI for facility trends and census dashboards");
         ensureDefaultNode(nodesById, "route53-dns", "dns", "Route53 / DNS", "Route53", "Public DNS routing");
-        ensureDefaultNode(nodesById, "certificate-manager", "security", "Certificate Manager", "ACM", "TLS certificate provisioning and rotation");
-        ensureDefaultNode(nodesById, "aws-waf", "security", "AWS WAF", "WAF", "Request filtering and attack prevention");
-        ensureDefaultNode(nodesById, "application-load-balancer", "gateway", "Application Load Balancer", "ALB", "Ingress traffic balancing");
-        ensureDefaultNode(nodesById, "eks-control-plane", "container", "EKS Control Plane", "EKS", "Orchestrates worker node workloads");
-        ensureDefaultNode(nodesById, "eks-node-group", "container", "EKS Node Group", "EC2 / K8s Nodes", "Runs backend pods and workers");
-        ensureDefaultNode(nodesById, "nat-gateway", "network", "NAT Gateway", "NAT", "Secure outbound connectivity for private nodes");
+        ensureDefaultNode(nodesById, "certificate-manager", "security", "Certificate Manager", "ACM",
+                "TLS certificate provisioning and rotation");
+        ensureDefaultNode(nodesById, "aws-waf", "security", "AWS WAF", "WAF",
+                "Request filtering and attack prevention");
+        ensureDefaultNode(nodesById, "application-load-balancer", "gateway", "Application Load Balancer", "ALB",
+                "Ingress traffic balancing");
+        ensureDefaultNode(nodesById, "eks-control-plane", "container", "EKS Control Plane", "EKS",
+                "Orchestrates worker node workloads");
+        ensureDefaultNode(nodesById, "eks-node-group", "container", "EKS Node Group", "EC2 / K8s Nodes",
+                "Runs backend pods and workers");
+        ensureDefaultNode(nodesById, "nat-gateway", "network", "NAT Gateway", "NAT",
+                "Secure outbound connectivity for private nodes");
 
-        ensureDefaultNode(nodesById, "scheduler-eventbridge", "scheduler", "Hourly Scheduler", "EventBridge", "Triggers hourly PCC data ingestion");
-        ensureDefaultNode(nodesById, "data-fetcher", "worker", "PCC Data Fetcher", "Lambda/Job", "Pulls source data from external PCC endpoint");
-        ensureDefaultNode(nodesById, "transform-service", "worker", "Transformation Service", "Redgate CLI / ETL", "Transforms source payload to analytics schema");
-        ensureDefaultNode(nodesById, "external-pcc-server", "external", "PCC External Server", "External API", "Source system for facility data");
+        ensureDefaultNode(nodesById, "scheduler-eventbridge", "scheduler", "Hourly Scheduler", "EventBridge",
+                "Triggers hourly PCC data ingestion");
+        ensureDefaultNode(nodesById, "data-fetcher", "worker", "PCC Data Fetcher", "Lambda/Job",
+                "Pulls source data from external PCC endpoint");
+        ensureDefaultNode(nodesById, "transform-service", "worker", "Transformation Service", "Redgate CLI / ETL",
+                "Transforms source payload to analytics schema");
+        ensureDefaultNode(nodesById, "external-pcc-server", "external", "PCC External Server", "External API",
+                "Source system for facility data");
 
-        ensureDefaultNode(nodesById, "invite-service", "service", "User Invite Service", "Spring Service", "Creates invite-only onboarding links");
-        ensureDefaultNode(nodesById, "otp-service", "service", "OTP Verification Service", "Spring Service", "Validates OTP before account activation");
-        ensureDefaultNode(nodesById, "token-service", "service", "Token Service", "JWT/Auth", "Issues and rotates access/refresh tokens");
-        ensureDefaultNode(nodesById, "permission-validator", "service", "Permission Validator", "Policy Engine", "Enforces facility-level access control");
-        ensureDefaultNode(nodesById, "ses-email", "notification", "SES Email Service", "AWS SES", "Sends invites and OTP messages");
+        ensureDefaultNode(nodesById, "invite-service", "service", "User Invite Service", "Spring Service",
+                "Creates invite-only onboarding links");
+        ensureDefaultNode(nodesById, "otp-service", "service", "OTP Verification Service", "Spring Service",
+                "Validates OTP before account activation");
+        ensureDefaultNode(nodesById, "token-service", "service", "Token Service", "JWT/Auth",
+                "Issues and rotates access/refresh tokens");
+        ensureDefaultNode(nodesById, "permission-validator", "service", "Permission Validator", "Policy Engine",
+                "Enforces facility-level access control");
+        ensureDefaultNode(nodesById, "ses-email", "notification", "SES Email Service", "AWS SES",
+                "Sends invites and OTP messages");
 
-        ensureDefaultNode(nodesById, "postgres-facility", "database", "PostgreSQL Facility Data", "PostgreSQL", "Patient, census, finance and trend analytics");
-        ensureDefaultNode(nodesById, "documentdb-users", "database", "DocumentDB User Data", "DocumentDB", "Credentials, tokens and permission documents");
-        ensureDefaultNode(nodesById, "redis-cache", "cache", "Redis Cache", "Redis", "Dashboard query caching and hot aggregations");
+        ensureDefaultNode(nodesById, "postgres-facility", "database", "PostgreSQL Facility Data", "PostgreSQL",
+                "Patient, census, finance and trend analytics");
+        ensureDefaultNode(nodesById, "documentdb-users", "database", "DocumentDB User Data", "DocumentDB",
+                "Credentials, tokens and permission documents");
+        ensureDefaultNode(nodesById, "redis-cache", "cache", "Redis Cache", "Redis",
+                "Dashboard query caching and hot aggregations");
 
-        ensureDefaultNode(nodesById, "cloudwatch", "observability", "CloudWatch", "CloudWatch", "Metrics, logs and alerting");
-        ensureDefaultNode(nodesById, "xray", "observability", "X-Ray", "AWS X-Ray", "Distributed tracing for data and auth flows");
-        ensureDefaultNode(nodesById, "secrets-manager", "security", "Secrets Manager", "AWS Secrets Manager", "Secret rotation and secure config injection");
-        ensureDefaultNode(nodesById, "s3-audit-backup", "storage", "S3 Audit & Backup", "S3", "Audit trail and backup snapshots");
+        ensureDefaultNode(nodesById, "cloudwatch", "observability", "CloudWatch", "CloudWatch",
+                "Metrics, logs and alerting");
+        ensureDefaultNode(nodesById, "xray", "observability", "X-Ray", "AWS X-Ray",
+                "Distributed tracing for data and auth flows");
+        ensureDefaultNode(nodesById, "secrets-manager", "security", "Secrets Manager", "AWS Secrets Manager",
+                "Secret rotation and secure config injection");
+        ensureDefaultNode(nodesById, "s3-audit-backup", "storage", "S3 Audit & Backup", "S3",
+                "Audit trail and backup snapshots");
 
         if (components != null) {
             for (Component component : components) {
@@ -509,10 +592,9 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                                 component.getType() == null ? "service" : component.getType(),
                                 component.getName(),
                                 defaultTechnology(component.getType()),
-                                component.getResponsibility() == null ? "Runtime architecture component" : component.getResponsibility(),
-                                normalizeLayer(component.getType())
-                        )
-                );
+                                component.getResponsibility() == null ? "Runtime architecture component"
+                                        : component.getResponsibility(),
+                                normalizeLayer(component.getType())));
             }
         }
 
@@ -520,8 +602,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         List<DiagramEdge> baseEdges = normalizeEdges(
                 rawMetadata == null ? null : rawMetadata.getEdges(),
                 nodesById.keySet(),
-                components
-        );
+                components);
 
         Map<String, DiagramEdge> dedupedEdges = new LinkedHashMap<>();
         for (DiagramEdge edge : baseEdges) {
@@ -585,7 +666,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             return base;
         }
         String infrastructureDetail = """
-                
+
                 Infrastructure Topology Deep Dive:
                 - External Ingestion: hourly scheduler triggers data-fetch job against PCC external server, followed by transformation and persistence.
                 - Edge/Security: DNS, certificate management, WAF filtering, and load balancer ingress before workload routing.
@@ -674,16 +755,17 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 "Device Capability Service",
                 "Media Processing Service",
                 "Upload Queue",
-                "Observability Service"
-        );
+                "Observability Service");
 
         if (existingIndex >= 0) {
             Component existing = result.get(existingIndex);
             if (existing == null) {
                 existing = Component.builder().build();
             }
-            existing.setName(existing.getName() == null || existing.getName().isBlank() ? "Camera Module" : existing.getName());
-            existing.setType(existing.getType() == null || existing.getType().isBlank() ? "mobile_feature" : existing.getType());
+            existing.setName(
+                    existing.getName() == null || existing.getName().isBlank() ? "Camera Module" : existing.getName());
+            existing.setType(
+                    existing.getType() == null || existing.getType().isBlank() ? "mobile_feature" : existing.getType());
             if (existing.getResponsibility() == null || existing.getResponsibility().length() < 90) {
                 existing.setResponsibility(cameraResponsibility);
             }
@@ -729,15 +811,13 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 "FlashController (off/auto/on/torch mode handling)",
                 "ImageProcessingPipeline (crop/rotate/compress/color-profile pipeline)",
                 "CaptureMetadataStore (EXIF + capture context persistence)",
-                "UploadOrchestrator (background upload with retry/backoff)"
-        );
+                "UploadOrchestrator (background upload with retry/backoff)");
         List<String> interfaces = List.of(
                 "CameraDeviceAdapter",
                 "CaptureControlApi",
                 "ImageProcessor",
                 "MediaUploadClient",
-                "CaptureTelemetryPublisher"
-        );
+                "CaptureTelemetryPublisher");
         List<String> sequence = List.of(
                 "Client opens camera screen and CameraPermissionManager validates permission state.",
                 "DeviceCapabilityService loads camera features and available control ranges.",
@@ -750,8 +830,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 "UploadOrchestrator enqueues media upload job with idempotency key.",
                 "MediaUploadClient sends payload to media backend and tracks progress.",
                 "Retry policy handles transient failures and resumes on network recovery.",
-                "CaptureTelemetryPublisher emits success/failure metrics and latency traces."
-        );
+                "CaptureTelemetryPublisher emits success/failure metrics and latency traces.");
         String description = "Implements production-ready mobile camera stack with deterministic control flow for permissions, "
                 + "camera lifecycle, focus/exposure/ISO/shutter/flash controls, image transformation, metadata persistence, "
                 + "reliable upload handoff, and observability instrumentation.";
@@ -791,7 +870,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 .method("GET")
                 .path("/api/v1/media/capture-config")
                 .requestSchema("{\"device_type\":\"string\",\"app_version\":\"string\"}")
-                .responseSchema("{\"max_resolution\":\"string\",\"supported_flash_modes\":[\"string\"],\"iso_range\":\"string\",\"shutter_range\":\"string\"}")
+                .responseSchema(
+                        "{\"max_resolution\":\"string\",\"supported_flash_modes\":[\"string\"],\"iso_range\":\"string\",\"shutter_range\":\"string\"}")
                 .errorCodes(List.of("400", "401", "429", "500"))
                 .build());
         upsertApiContract(result, ApiContract.builder()
@@ -852,8 +932,10 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 .name(isBlank(original.getName()) ? overlay.getName() : original.getName())
                 .method(isBlank(original.getMethod()) ? overlay.getMethod() : original.getMethod())
                 .path(isBlank(original.getPath()) ? overlay.getPath() : original.getPath())
-                .requestSchema(isBlank(original.getRequestSchema()) ? overlay.getRequestSchema() : original.getRequestSchema())
-                .responseSchema(isBlank(original.getResponseSchema()) ? overlay.getResponseSchema() : original.getResponseSchema())
+                .requestSchema(
+                        isBlank(original.getRequestSchema()) ? overlay.getRequestSchema() : original.getRequestSchema())
+                .responseSchema(isBlank(original.getResponseSchema()) ? overlay.getResponseSchema()
+                        : original.getResponseSchema())
                 .errorCodes(mergeUnique(original.getErrorCodes(), overlay.getErrorCodes()))
                 .build();
     }
@@ -879,8 +961,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             existing.setImplementationApproach(
                     isBlank(existing.getImplementationApproach())
                             ? "Implement camera stack with layered controllers (permissions, capabilities, controls, capture, processing, upload) and strict observability."
-                            : existing.getImplementationApproach()
-            );
+                            : existing.getImplementationApproach());
             existing.setTasks(mergeTaskRows(existing.getTasks(), cameraTasks));
             existing.setHoursExperiencedDeveloper(sumTaskHours(existing.getTasks(), Role.EXPERIENCED));
             existing.setHoursMidLevelDeveloper(sumTaskHours(existing.getTasks(), Role.MID));
@@ -891,7 +972,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
 
         TaskBreakdownItem item = TaskBreakdownItem.builder()
                 .moduleName("Camera Module")
-                .implementationApproach("Build camera feature as an independent module with capability detection, control plane (focus/ISO/shutter/flash), capture pipeline, media upload orchestration, and runtime telemetry.")
+                .implementationApproach(
+                        "Build camera feature as an independent module with capability detection, control plane (focus/ISO/shutter/flash), capture pipeline, media upload orchestration, and runtime telemetry.")
                 .tasks(cameraTasks)
                 .hoursExperiencedDeveloper(sumTaskHours(cameraTasks, Role.EXPERIENCED))
                 .hoursMidLevelDeveloper(sumTaskHours(cameraTasks, Role.MID))
@@ -903,23 +985,39 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
 
     private List<TaskBreakdownTask> buildCameraModuleTasks() {
         return List.of(
-                task("Camera requirement decomposition", "Define camera feature matrix: modes, device support, UX constraints, and acceptance criteria.", 10),
-                task("Permissions and privacy workflow", "Implement runtime permission flow, denial recovery, and privacy notices.", 12),
-                task("Camera session lifecycle", "Implement camera session startup/shutdown, background handling, and lifecycle resilience.", 16),
-                task("Device capability discovery", "Detect lens modes, frame rates, supported ISO/shutter ranges, and stabilization support.", 12),
-                task("Focus control module", "Implement autofocus, manual focus gestures, focus lock, and focus failure recovery.", 14),
-                task("Exposure controls (ISO + shutter)", "Implement ISO/shutter tuning controls with guardrails and real-time preview adjustments.", 18),
-                task("Flash control modes", "Implement flash off/auto/on/torch logic with capability checks and fallback behavior.", 10),
-                task("Image processing pipeline", "Build transform pipeline for orientation correction, compression, and quality profile selection.", 16),
-                task("Capture metadata persistence", "Store EXIF/context metadata and enforce idempotent capture records.", 10),
-                task("Upload queue orchestration", "Implement resilient upload queue with retry/backoff, offline replay, and deduplication.", 16),
-                task("Camera telemetry and alerts", "Instrument capture latency, failure counters, and device-specific error signals.", 10),
-                task("Device compatibility and performance testing", "Run compatibility matrix tests and optimize battery, memory, and thermal behavior.", 24),
-                task("Crash and recovery hardening", "Add defensive error handling, safe fallback states, and recovery UX.", 10)
-        );
+                task("Camera requirement decomposition",
+                        "Define camera feature matrix: modes, device support, UX constraints, and acceptance criteria.",
+                        10),
+                task("Permissions and privacy workflow",
+                        "Implement runtime permission flow, denial recovery, and privacy notices.", 12),
+                task("Camera session lifecycle",
+                        "Implement camera session startup/shutdown, background handling, and lifecycle resilience.",
+                        16),
+                task("Device capability discovery",
+                        "Detect lens modes, frame rates, supported ISO/shutter ranges, and stabilization support.", 12),
+                task("Focus control module",
+                        "Implement autofocus, manual focus gestures, focus lock, and focus failure recovery.", 14),
+                task("Exposure controls (ISO + shutter)",
+                        "Implement ISO/shutter tuning controls with guardrails and real-time preview adjustments.", 18),
+                task("Flash control modes",
+                        "Implement flash off/auto/on/torch logic with capability checks and fallback behavior.", 10),
+                task("Image processing pipeline",
+                        "Build transform pipeline for orientation correction, compression, and quality profile selection.",
+                        16),
+                task("Capture metadata persistence",
+                        "Store EXIF/context metadata and enforce idempotent capture records.", 10),
+                task("Upload queue orchestration",
+                        "Implement resilient upload queue with retry/backoff, offline replay, and deduplication.", 16),
+                task("Camera telemetry and alerts",
+                        "Instrument capture latency, failure counters, and device-specific error signals.", 10),
+                task("Device compatibility and performance testing",
+                        "Run compatibility matrix tests and optimize battery, memory, and thermal behavior.", 24),
+                task("Crash and recovery hardening",
+                        "Add defensive error handling, safe fallback states, and recovery UX.", 10));
     }
 
-    private List<TaskBreakdownTask> mergeTaskRows(List<TaskBreakdownTask> existingTasks, List<TaskBreakdownTask> requiredTasks) {
+    private List<TaskBreakdownTask> mergeTaskRows(List<TaskBreakdownTask> existingTasks,
+            List<TaskBreakdownTask> requiredTasks) {
         Map<String, TaskBreakdownTask> byTask = new LinkedHashMap<>();
         if (existingTasks != null) {
             for (TaskBreakdownTask task : existingTasks) {
@@ -945,14 +1043,14 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 if (screen.getUiComponents() == null || screen.getUiComponents().size() < 6) {
                     screen.setUiComponents(mergeUnique(
                             screen.getUiComponents(),
-                            List.of("Preview surface", "Flash toggle", "ISO slider", "Shutter speed dial", "Focus reticle", "Capture button", "Upload status pill")
-                    ));
+                            List.of("Preview surface", "Flash toggle", "ISO slider", "Shutter speed dial",
+                                    "Focus reticle", "Capture button", "Upload status pill")));
                 }
                 if (screen.getInteractions() == null || screen.getInteractions().size() < 5) {
                     screen.setInteractions(mergeUnique(
                             screen.getInteractions(),
-                            List.of("Tap to focus", "Adjust ISO", "Adjust shutter speed", "Toggle flash mode", "Capture image", "Retry upload")
-                    ));
+                            List.of("Tap to focus", "Adjust ISO", "Adjust shutter speed", "Toggle flash mode",
+                                    "Capture image", "Retry upload")));
                 }
                 return enrichWireframeScreens(result);
             }
@@ -962,15 +1060,18 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 .screenName("Camera Capture")
                 .platform("Mobile")
                 .purpose("Capture media with advanced camera controls and reliable upload handoff.")
-                .layoutDescription("Fullscreen preview with top control bar (flash, settings), center focus grid, bottom control tray (ISO, shutter speed, capture, gallery), and upload status rail.")
-                .uiComponents(List.of("Preview surface", "Flash toggle", "ISO slider", "Shutter speed dial", "Focus reticle", "Capture button", "Upload status pill"))
-                .interactions(List.of("Tap to focus", "Pinch to zoom", "Adjust ISO", "Adjust shutter speed", "Toggle flash mode", "Capture image", "Retry upload"))
+                .layoutDescription(
+                        "Fullscreen preview with top control bar (flash, settings), center focus grid, bottom control tray (ISO, shutter speed, capture, gallery), and upload status rail.")
+                .uiComponents(List.of("Preview surface", "Flash toggle", "ISO slider", "Shutter speed dial",
+                        "Focus reticle", "Capture button", "Upload status pill"))
+                .interactions(List.of("Tap to focus", "Pinch to zoom", "Adjust ISO", "Adjust shutter speed",
+                        "Toggle flash mode", "Capture image", "Retry upload"))
                 .apiBindings(List.of(
                         "GET /api/v1/media/capture-config",
                         "POST /api/v1/media/captures/session",
                         "POST /api/v1/media/uploads/presign",
-                        "POST /api/v1/media/captures/{sessionId}/finalize"
-                ))
+                        "POST /api/v1/media/captures/{sessionId}/finalize"))
+                .requirementCoverage(List.of("Camera capture workflow with advanced controls"))
                 .build());
         return enrichWireframeScreens(result);
     }
@@ -981,7 +1082,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             return base;
         }
         String cameraDetail = """
-                
+
                 Camera Module Deep Dive:
                 - Control Plane: permission manager, capability detection, focus/exposure controller, flash manager.
                 - Capture Plane: preview session lifecycle, frame capture pipeline, image processing/compression.
@@ -1063,8 +1164,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                         .version(
                                 systemDesignRepository.findTopByProductNameOrderByVersionDesc(request.getProductName())
                                         .map(existing -> existing.getVersion() + 1)
-                                        .orElse(1)
-                        )
+                                        .orElse(1))
                         .requestJson(requestSnapshot)
                         .build());
         design.setRequestJson(requestSnapshot);
@@ -1160,7 +1260,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     .append(" [")
                     .append(component.getType() == null ? "type-unknown" : component.getType())
                     .append("] -> ")
-                    .append(component.getResponsibility() == null ? "responsibility not provided" : component.getResponsibility())
+                    .append(component.getResponsibility() == null ? "responsibility not provided"
+                            : component.getResponsibility())
                     .append("\n");
         }
         return builder.toString().trim();
@@ -1196,7 +1297,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 component.setBuildOrder(nextOrder);
             }
             if (component.getImplementationApproach() == null || component.getImplementationApproach().isBlank()) {
-                component.setImplementationApproach("Implement with clear interfaces, unit tests, and production-grade observability.");
+                component.setImplementationApproach(
+                        "Implement with clear interfaces, unit tests, and production-grade observability.");
             }
             nextOrder = Math.max(nextOrder + 1, component.getBuildOrder() + 1);
             sanitized.add(component);
@@ -1297,8 +1399,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     Component.builder().name("Identity & Access Management").type("auth").build(),
                     Component.builder().name("Core Business Services").type("service").build(),
                     Component.builder().name("Data Platform & Integrations").type("database").build(),
-                    Component.builder().name("DevOps, Monitoring & Release").type("devops").build()
-            );
+                    Component.builder().name("DevOps, Monitoring & Release").type("devops").build());
         }
         List<TaskBreakdownItem> items = new ArrayList<>();
         for (Component component : sourceComponents) {
@@ -1311,15 +1412,14 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     defaultTasksForComponent(component.getName(), componentType, base),
                     component.getName(),
                     componentType,
-                    base
-            );
+                    base);
             items.add(TaskBreakdownItem.builder()
                     .moduleName(component.getName())
                     .implementationApproach(
-                            component.getImplementationApproach() == null || component.getImplementationApproach().isBlank()
-                                    ? "Implement in phased increments with contract-first APIs, automated tests, and production-readiness checks."
-                                    : component.getImplementationApproach()
-                    )
+                            component.getImplementationApproach() == null
+                                    || component.getImplementationApproach().isBlank()
+                                            ? "Implement in phased increments with contract-first APIs, automated tests, and production-readiness checks."
+                                            : component.getImplementationApproach())
                     .tasks(tasks)
                     .hoursExperiencedDeveloper(sumTaskHours(tasks, Role.EXPERIENCED))
                     .hoursMidLevelDeveloper(sumTaskHours(tasks, Role.MID))
@@ -1339,7 +1439,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             case "devops", "observability" -> 50;
             default -> 48;
         };
-        int responsibilityWeight = component.getResponsibility() == null || component.getResponsibility().isBlank() ? 0 : 6;
+        int responsibilityWeight = component.getResponsibility() == null || component.getResponsibility().isBlank() ? 0
+                : 6;
         return Math.max(36, complexityWeight + dependencyWeight + responsibilityWeight);
     }
 
@@ -1387,8 +1488,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     .implementationApproach(
                             item.getImplementationApproach() == null || item.getImplementationApproach().isBlank()
                                     ? "Build iteratively with contracts, tests, and deployment validation."
-                                    : item.getImplementationApproach()
-                    )
+                                    : item.getImplementationApproach())
                     .tasks(tasks)
                     .hoursExperiencedDeveloper(experiencedTotal)
                     .hoursMidLevelDeveloper(midTotal)
@@ -1400,34 +1500,58 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
 
     private List<TaskBreakdownTask> defaultTasksForComponent(String moduleName, String componentType, int baseHours) {
         List<TaskBreakdownTask> tasks = new ArrayList<>();
-        tasks.add(task("Requirement decomposition", "Break down " + moduleName + " stories, edge cases, and acceptance criteria.", hours(baseHours, 0.10, 5)));
-        tasks.add(task("Technical design & contracts", "Define module contracts, request/response models, and error model.", hours(baseHours, 0.10, 5)));
-        tasks.add(task("Implementation scaffolding", "Create module structure, config, dependency wiring, and guardrails.", hours(baseHours, 0.12, 5)));
-        tasks.add(task("Core use-case implementation", "Implement core workflows and business rules for " + moduleName + ".", hours(baseHours, 0.20, 9)));
-        tasks.add(task("Validation and error handling", "Implement input validation, retries, and deterministic failure paths.", hours(baseHours, 0.08, 4)));
-        tasks.add(task("Integration wiring", "Integrate upstream/downstream modules and third-party dependencies.", hours(baseHours, 0.12, 6)));
-        tasks.add(task("Observability instrumentation", "Add structured logs, metrics, traces, and dashboard signals.", hours(baseHours, 0.08, 4)));
-        tasks.add(task("Automated testing", "Implement unit, integration, and negative-path tests.", hours(baseHours, 0.12, 6)));
-        tasks.add(task("Performance and reliability tuning", "Profile bottlenecks, optimize hotspots, and validate scale behavior.", hours(baseHours, 0.10, 5)));
-        tasks.add(task("Documentation and handoff", "Prepare operational notes, API docs, and developer handoff details.", hours(baseHours, 0.08, 4)));
+        tasks.add(task("Requirement decomposition",
+                "Break down " + moduleName + " stories, edge cases, and acceptance criteria.",
+                hours(baseHours, 0.10, 5)));
+        tasks.add(task("Technical design & contracts",
+                "Define module contracts, request/response models, and error model.", hours(baseHours, 0.10, 5)));
+        tasks.add(task("Implementation scaffolding",
+                "Create module structure, config, dependency wiring, and guardrails.", hours(baseHours, 0.12, 5)));
+        tasks.add(task("Core use-case implementation",
+                "Implement core workflows and business rules for " + moduleName + ".", hours(baseHours, 0.20, 9)));
+        tasks.add(task("Validation and error handling",
+                "Implement input validation, retries, and deterministic failure paths.", hours(baseHours, 0.08, 4)));
+        tasks.add(task("Integration wiring", "Integrate upstream/downstream modules and third-party dependencies.",
+                hours(baseHours, 0.12, 6)));
+        tasks.add(task("Observability instrumentation", "Add structured logs, metrics, traces, and dashboard signals.",
+                hours(baseHours, 0.08, 4)));
+        tasks.add(task("Automated testing", "Implement unit, integration, and negative-path tests.",
+                hours(baseHours, 0.12, 6)));
+        tasks.add(task("Performance and reliability tuning",
+                "Profile bottlenecks, optimize hotspots, and validate scale behavior.", hours(baseHours, 0.10, 5)));
+        tasks.add(task("Documentation and handoff",
+                "Prepare operational notes, API docs, and developer handoff details.", hours(baseHours, 0.08, 4)));
 
         if (componentType.equals("mobile") || componentType.equals("frontend")) {
-            tasks.add(task("Responsive UI states", "Build loading/empty/error/offline states and accessibility support.", hours(baseHours, 0.10, 5)));
-            tasks.add(task("Offline sync & local storage", "Implement local cache strategy, sync queue, and conflict handling.", hours(baseHours, 0.12, 6)));
-            tasks.add(task("Release packaging", "Prepare store/release builds, feature flags, and runtime config handling.", hours(baseHours, 0.08, 4)));
+            tasks.add(task("Responsive UI states",
+                    "Build loading/empty/error/offline states and accessibility support.", hours(baseHours, 0.10, 5)));
+            tasks.add(task("Offline sync & local storage",
+                    "Implement local cache strategy, sync queue, and conflict handling.", hours(baseHours, 0.12, 6)));
+            tasks.add(task("Release packaging",
+                    "Prepare store/release builds, feature flags, and runtime config handling.",
+                    hours(baseHours, 0.08, 4)));
         }
         if (componentType.equals("auth") || componentType.equals("gateway")) {
-            tasks.add(task("Security policy implementation", "Implement authentication, authorization, throttling, and abuse checks.", hours(baseHours, 0.12, 6)));
-            tasks.add(task("Audit & compliance controls", "Implement audit logging, sensitive-data masking, and policy checks.", hours(baseHours, 0.08, 4)));
+            tasks.add(task("Security policy implementation",
+                    "Implement authentication, authorization, throttling, and abuse checks.",
+                    hours(baseHours, 0.12, 6)));
+            tasks.add(task("Audit & compliance controls",
+                    "Implement audit logging, sensitive-data masking, and policy checks.", hours(baseHours, 0.08, 4)));
         }
         if (componentType.equals("database") || componentType.equals("cache") || componentType.equals("queue")) {
-            tasks.add(task("Schema/index optimization", "Design schema/indexes/retention strategy and migration scripts.", hours(baseHours, 0.14, 7)));
-            tasks.add(task("Backup and recovery setup", "Define backup cadence, restore validation, and data integrity checks.", hours(baseHours, 0.08, 4)));
+            tasks.add(task("Schema/index optimization",
+                    "Design schema/indexes/retention strategy and migration scripts.", hours(baseHours, 0.14, 7)));
+            tasks.add(task("Backup and recovery setup",
+                    "Define backup cadence, restore validation, and data integrity checks.",
+                    hours(baseHours, 0.08, 4)));
         }
         if (componentType.equals("devops") || componentType.equals("observability")) {
-            tasks.add(task("CI/CD pipeline setup", "Create build/test/deploy pipeline with environment promotion gates.", hours(baseHours, 0.14, 7)));
-            tasks.add(task("Infrastructure automation", "Provision environments using Infrastructure as Code modules.", hours(baseHours, 0.12, 6)));
-            tasks.add(task("Runbook and on-call setup", "Define SLO alerts, runbooks, and incident response workflow.", hours(baseHours, 0.10, 5)));
+            tasks.add(task("CI/CD pipeline setup",
+                    "Create build/test/deploy pipeline with environment promotion gates.", hours(baseHours, 0.14, 7)));
+            tasks.add(task("Infrastructure automation", "Provision environments using Infrastructure as Code modules.",
+                    hours(baseHours, 0.12, 6)));
+            tasks.add(task("Runbook and on-call setup", "Define SLO alerts, runbooks, and incident response workflow.",
+                    hours(baseHours, 0.10, 5)));
         }
         return tasks;
     }
@@ -1436,8 +1560,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             List<TaskBreakdownTask> tasks,
             String moduleName,
             String componentType,
-            int baseHours
-    ) {
+            int baseHours) {
         Map<String, TaskBreakdownTask> byTaskName = new LinkedHashMap<>();
         if (tasks != null) {
             for (TaskBreakdownTask task : tasks) {
@@ -1463,11 +1586,15 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
 
         if (byTaskName.size() < MIN_TASKS_PER_MODULE) {
             List<TaskBreakdownTask> expansion = List.of(
-                    task("Code review and refactoring", "Address review findings and improve maintainability.", hours(baseHours, 0.06, 4)),
-                    task("QA/UAT support", "Support QA validation, defect triage, and acceptance sign-off.", hours(baseHours, 0.06, 4)),
-                    task("Production readiness checklist", "Verify security, performance, backup, and monitoring readiness.", hours(baseHours, 0.06, 4)),
-                    task("Deployment verification", "Validate post-deployment health checks and rollback safety.", hours(baseHours, 0.05, 3))
-            );
+                    task("Code review and refactoring", "Address review findings and improve maintainability.",
+                            hours(baseHours, 0.06, 4)),
+                    task("QA/UAT support", "Support QA validation, defect triage, and acceptance sign-off.",
+                            hours(baseHours, 0.06, 4)),
+                    task("Production readiness checklist",
+                            "Verify security, performance, backup, and monitoring readiness.",
+                            hours(baseHours, 0.06, 4)),
+                    task("Deployment verification", "Validate post-deployment health checks and rollback safety.",
+                            hours(baseHours, 0.05, 3)));
             for (TaskBreakdownTask task : expansion) {
                 byTaskName.putIfAbsent(taskKey(task.getTaskName()), task);
                 if (byTaskName.size() >= MIN_TASKS_PER_MODULE) {
@@ -1522,7 +1649,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         if (value.contains("queue") || value.contains("kafka") || value.contains("sqs") || value.contains("rabbit")) {
             return "queue";
         }
-        if (value.contains("devops") || value.contains("deployment") || value.contains("pipeline") || value.contains("infra")) {
+        if (value.contains("devops") || value.contains("deployment") || value.contains("pipeline")
+                || value.contains("infra")) {
             return "devops";
         }
         if (value.contains("observability") || value.contains("monitoring") || value.contains("alert")) {
@@ -1598,7 +1726,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
     }
 
     private List<Component> extractComponentsForFallback(DesignStageResult componentBreakdown) {
-        if (componentBreakdown == null || componentBreakdown.getContent() == null || componentBreakdown.getContent().isBlank()) {
+        if (componentBreakdown == null || componentBreakdown.getContent() == null
+                || componentBreakdown.getContent().isBlank()) {
             return List.of();
         }
         try {
@@ -1624,8 +1753,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 "Top-level auth header, onboarding cards, form panel, social login options, legal links, trust indicators.",
                 List.of("Sign up form", "Login form", "OTP input", "Password reset", "Terms consent"),
                 List.of("Submit credentials", "OTP verification", "Error banner handling", "Session bootstrap"),
-                List.of("POST /api/v1/auth/register", "POST /api/v1/auth/login", "POST /api/v1/auth/refresh")
-        );
+                List.of("POST /api/v1/auth/register", "POST /api/v1/auth/login", "POST /api/v1/auth/refresh"));
         addWireframeScreen(
                 screens,
                 seen,
@@ -1635,8 +1763,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 "Global navigation shell, KPI cards row, primary activity feed, contextual action panel, alert rail.",
                 List.of("KPI cards", "Activity timeline", "Quick actions", "Status chips", "Search bar"),
                 List.of("Filter dashboard widgets", "Drill into module details", "Trigger quick actions"),
-                List.of("GET /api/v1/feed", "GET /api/v1/recommendations", "GET /api/v1/notifications")
-        );
+                List.of("GET /api/v1/feed", "GET /api/v1/recommendations", "GET /api/v1/notifications"));
         addWireframeScreen(
                 screens,
                 seen,
@@ -1646,8 +1773,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 "Faceted sidebar filters, searchable table/list, pagination footer, bulk-action toolbar.",
                 List.of("Search input", "Filter panel", "Paginated list", "Sort controls", "Bulk actions"),
                 List.of("Search by keyword", "Apply multi-filter", "Batch operations"),
-                List.of("GET /api/v1/search", "GET /api/v1/resources", "PATCH /api/v1/resources/{resourceId}")
-        );
+                List.of("GET /api/v1/search", "GET /api/v1/resources", "PATCH /api/v1/resources/{resourceId}"));
         addWireframeScreen(
                 screens,
                 seen,
@@ -1657,8 +1783,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 "Detail summary header, tabbed information sections, editable forms, history/audit sidebar.",
                 List.of("Detail cards", "Edit form", "Audit timeline", "Attachment panel", "Validation messages"),
                 List.of("Inline edit", "Save draft", "Submit update", "Revert changes"),
-                List.of("GET /api/v1/resources/{resourceId}", "PUT /api/v1/resources/{resourceId}", "GET /api/v1/admin/audit-logs")
-        );
+                List.of("GET /api/v1/resources/{resourceId}", "PUT /api/v1/resources/{resourceId}",
+                        "GET /api/v1/admin/audit-logs"));
         addWireframeScreen(
                 screens,
                 seen,
@@ -1668,8 +1794,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 "Notification stream, category tabs, unread counters, action drawer.",
                 List.of("Notification cards", "Unread badges", "Action buttons", "Filter tabs"),
                 List.of("Mark as read", "Snooze notification", "Open linked workflow"),
-                List.of("GET /api/v1/notifications", "PATCH /api/v1/notifications/{notificationId}/read")
-        );
+                List.of("GET /api/v1/notifications", "PATCH /api/v1/notifications/{notificationId}/read"));
         addWireframeScreen(
                 screens,
                 seen,
@@ -1679,8 +1804,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 "Ops metric tiles, scheduled jobs table, incident panel, feature flag controls.",
                 List.of("Job queue table", "Metrics tiles", "Feature toggle controls", "Incident timeline"),
                 List.of("Trigger admin job", "Pause/resume jobs", "Inspect incidents"),
-                List.of("POST /api/v1/admin/jobs", "GET /api/v1/admin/jobs", "GET /api/v1/metrics")
-        );
+                List.of("POST /api/v1/admin/jobs", "GET /api/v1/admin/jobs", "GET /api/v1/metrics"));
 
         if (components != null) {
             List<Component> ordered = new ArrayList<>(components);
@@ -1706,8 +1830,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                         "Primary workspace with module summary, action panel, details region, and contextual insights.",
                         List.of("Header", "Summary cards", "Primary list/grid", "Action buttons", "Status panel"),
                         List.of("Create item", "Update item", "Inspect dependency state"),
-                        List.of("GET /api/v1/" + slugify(component.getName()), "POST /api/v1/" + slugify(component.getName()))
-                );
+                        List.of("GET /api/v1/" + slugify(component.getName()),
+                                "POST /api/v1/" + slugify(component.getName())));
             }
         }
         return screens;
@@ -1722,8 +1846,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             String layoutDescription,
             List<String> uiComponents,
             List<String> interactions,
-            List<String> apiBindings
-    ) {
+            List<String> apiBindings) {
         String key = screenName == null ? "" : screenName.trim().toLowerCase();
         if (key.isBlank() || seen.contains(key)) {
             return;
@@ -1738,6 +1861,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 .uiComponents(uiComponents)
                 .interactions(interactions)
                 .apiBindings(apiBindings)
+                .requirementCoverage(List.of(isBlank(purpose) ? screenName : purpose))
                 .build());
     }
 
@@ -1754,7 +1878,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             if (source == null) {
                 continue;
             }
-            String screenName = isBlank(source.getScreenName()) ? "Screen " + (index + 1) : source.getScreenName().trim();
+            String screenName = isBlank(source.getScreenName()) ? "Screen " + (index + 1)
+                    : source.getScreenName().trim();
             String routeId = isBlank(source.getRouteId()) ? slugify(screenName) : slugify(source.getRouteId());
             if (routeId.isBlank()) {
                 routeId = "screen-" + (index + 1);
@@ -1777,6 +1902,9 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     .uiComponents(source.getUiComponents() == null ? List.of() : source.getUiComponents())
                     .interactions(source.getInteractions() == null ? List.of() : source.getInteractions())
                     .apiBindings(source.getApiBindings() == null ? List.of() : source.getApiBindings())
+                    .requirementCoverage(source.getRequirementCoverage() == null
+                            ? List.of(isBlank(source.getPurpose()) ? screenName : source.getPurpose().trim())
+                            : source.getRequirementCoverage())
                     .nextScreenIds(source.getNextScreenIds() == null ? List.of() : source.getNextScreenIds())
                     .screenHtml(source.getScreenHtml())
                     .build());
@@ -1826,18 +1954,19 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         String components = screen.getUiComponents() == null || screen.getUiComponents().isEmpty()
                 ? "<li>Header</li><li>Content area</li><li>Primary action button</li><li>Status footer</li>"
                 : screen.getUiComponents().stream()
-                .map(component -> "<li>" + escapeHtml(component) + "</li>")
-                .reduce("", String::concat);
+                        .map(component -> "<li>" + escapeHtml(component) + "</li>")
+                        .reduce("", String::concat);
         String apis = screen.getApiBindings() == null || screen.getApiBindings().isEmpty()
                 ? "<li>No API binding listed</li>"
                 : screen.getApiBindings().stream()
-                .map(api -> "<li><code>" + escapeHtml(api) + "</code></li>")
-                .reduce("", String::concat);
+                        .map(api -> "<li><code>" + escapeHtml(api) + "</code></li>")
+                        .reduce("", String::concat);
         String nextButtons = screen.getNextScreenIds() == null || screen.getNextScreenIds().isEmpty()
                 ? "<button type=\"button\" disabled>End of flow</button>"
                 : screen.getNextScreenIds().stream()
-                .map(nextId -> "<button type=\"button\" data-nav-screen=\"" + escapeHtml(nextId) + "\">Go to " + escapeHtml(nextId) + "</button>")
-                .reduce("", String::concat);
+                        .map(nextId -> "<button type=\"button\" data-nav-screen=\"" + escapeHtml(nextId) + "\">Go to "
+                                + escapeHtml(nextId) + "</button>")
+                        .reduce("", String::concat);
 
         return """
                 <div class="wf-app">
@@ -1883,8 +2012,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                 components,
                 escapeHtml(layout),
                 apis,
-                nextButtons
-        );
+                nextButtons);
     }
 
     private String escapeHtml(String value) {
@@ -1907,7 +2035,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         try {
             DesignStageResult result = aiStageService.generateSow(request);
             persistSowSnapshot(designId, request, result.getContent());
-            designGenerationPublisher.publishStageCompleted(designId.toString(), stageName, progress, result.getContent());
+            designGenerationPublisher.publishStageCompleted(designId.toString(), stageName, progress,
+                    result.getContent());
             log.info("DesignId={} stage={} completed", designId, stageName);
             return result;
         } catch (Exception ex) {
@@ -1916,7 +2045,8 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             Map<String, Object> fallbackSow = Map.of(
                     "sow",
                     Map.of(
-                            "project_summary", "This scope of work defines delivery for a production-ready architecture and implementation plan. "
+                            "project_summary",
+                            "This scope of work defines delivery for a production-ready architecture and implementation plan. "
                                     + "It includes requirement clarification, component design, API specification, task-level execution planning, "
                                     + "wireframe definition, deployment alignment, and operational readiness expectations. The SOW is structured for "
                                     + "engineering execution with measurable outcomes, phased milestones, and clear in-scope/out-of-scope boundaries.",
@@ -1924,8 +2054,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                                     "Deliver a scalable architecture blueprint aligned with growth targets and non-functional constraints.",
                                     "Provide implementation-grade APIs and module contracts to accelerate engineering execution.",
                                     "Reduce delivery ambiguity by mapping requirements to concrete components and milestones.",
-                                    "Establish operational readiness with observability, reliability, and deployment guardrails."
-                            ),
+                                    "Establish operational readiness with observability, reliability, and deployment guardrails."),
                             "in_scope", List.of(
                                     "Requirement decomposition into platform modules and engineering workstreams.",
                                     "High-level and low-level architecture for core and supporting services.",
@@ -1936,22 +2065,19 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                                     "Wireframe-level UX blueprint for key user and operations flows.",
                                     "Deployment and runtime architecture alignment for selected infra stack.",
                                     "Resilience, scalability, and monitoring strategy recommendations.",
-                                    "Documentation and handoff artifacts for implementation teams."
-                            ),
+                                    "Documentation and handoff artifacts for implementation teams."),
                             "out_of_scope", List.of(
                                     "Post-go-live feature expansion beyond approved requirement baseline.",
                                     "Procurement and commercial negotiation with third-party vendors.",
                                     "Legal, compliance, and policy approvals outside technical implementation scope.",
                                     "Long-term managed operations and on-call staffing agreements.",
                                     "End-user training programs and customer support playbook creation.",
-                                    "Marketing, GTM strategy, or business process consulting deliverables."
-                            ),
+                                    "Marketing, GTM strategy, or business process consulting deliverables."),
                             "dependencies", List.of(
                                     "Finalized and prioritized functional requirements approved by product stakeholders.",
                                     "Infrastructure access and environment provisioning for development and validation.",
                                     "Availability of domain SMEs for requirement clarification during design cycles.",
-                                    "Decisions on security posture, auth provider, and compliance baseline."
-                            ),
+                                    "Decisions on security posture, auth provider, and compliance baseline."),
                             "deliverables", List.of(
                                     "Structured system design document covering architecture, components, and flows.",
                                     "Detailed scope of work with phase-wise engineering objectives and boundaries.",
@@ -1962,8 +2088,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                                     "Wireframe blueprint for core product and operational screens.",
                                     "Scalability and reliability strategy recommendations.",
                                     "Failure handling and degradation strategy notes.",
-                                    "Export-ready artifacts for PDF and CSV handoff."
-                            ),
+                                    "Export-ready artifacts for PDF and CSV handoff."),
                             "milestones", List.of(
                                     "Phase 1 - Discovery closure (Owner: Product + Architect) completed when requirements and constraints are baseline-approved.",
                                     "Phase 2 - SOW finalization (Owner: Architect) completed when scope, assumptions, risks, and acceptance criteria are signed off.",
@@ -1972,8 +2097,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                                     "Phase 5 - LLD completion (Owner: Engineering leads) completed when component internals and integration contracts are finalized.",
                                     "Phase 6 - Task plan approval (Owner: Delivery manager) completed when effort estimates and execution sequence are validated.",
                                     "Phase 7 - Wireframe alignment (Owner: Product + UX) completed when key journey screens are reviewed and approved.",
-                                    "Phase 8 - Handoff readiness (Owner: Program owner) completed when documentation and execution artifacts are published."
-                            ),
+                                    "Phase 8 - Handoff readiness (Owner: Program owner) completed when documentation and execution artifacts are published."),
                             "acceptance_criteria", List.of(
                                     "All prioritized functional requirements are mapped to at least one implementation component.",
                                     "Core non-functional requirements are explicitly addressed in architecture decisions.",
@@ -1984,8 +2108,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                                     "Dependencies and out-of-scope constraints are explicitly documented.",
                                     "Milestones include owner and completion condition per phase.",
                                     "Generated artifacts are exportable and consumable by implementation teams.",
-                                    "Design package is sufficient for sprint planning and engineering kickoff."
-                            ),
+                                    "Design package is sufficient for sprint planning and engineering kickoff."),
                             "risks", List.of(
                                     "Requirement volatility may expand scope and impact estimates; mitigation: enforce baseline and change-control checkpoints.",
                                     "Third-party integration uncertainty may delay implementation; mitigation: isolate adapters and define fallback contracts.",
@@ -1994,8 +2117,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                                     "Security design gaps may trigger late rework; mitigation: include threat-model review before implementation.",
                                     "Cross-team dependency slippage may affect milestones; mitigation: explicit ownership and dependency tracking board.",
                                     "Data model changes may ripple through APIs; mitigation: version schema and freeze core contracts early.",
-                                    "Tooling/stack mismatch with team skills may reduce velocity; mitigation: align stack decisions with team competency."
-                            ),
+                                    "Tooling/stack mismatch with team skills may reduce velocity; mitigation: align stack decisions with team competency."),
                             "assumptions", List.of(
                                     "Requirement backlog is prioritized and approved before deep implementation planning.",
                                     "Delivery team has access to required repositories, environments, and observability tooling.",
@@ -2004,10 +2126,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                                     "Core business workflows remain stable during the initial planning window.",
                                     "Cross-functional stakeholders are available for periodic sign-off checkpoints.",
                                     "External dependencies provide stable API contracts or sandbox access.",
-                                    "Engineering capacity assumptions remain consistent with current staffing plan."
-                            )
-                    )
-            );
+                                    "Engineering capacity assumptions remain consistent with current staffing plan.")));
             String fallbackJson = toJsonSafely(fallbackSow, "{\"sow\":{}}");
             DesignStageResult fallback = DesignStageResult.builder()
                     .stageName(stageName)
@@ -2029,10 +2148,10 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                             .id(designId)
                             .productName(request.getProductName())
                             .version(
-                                    systemDesignRepository.findTopByProductNameOrderByVersionDesc(request.getProductName())
+                                    systemDesignRepository
+                                            .findTopByProductNameOrderByVersionDesc(request.getProductName())
                                             .map(existing -> existing.getVersion() + 1)
-                                            .orElse(1)
-                            )
+                                            .orElse(1))
                             .requestJson(requestSnapshot)
                             .documentJson(documentMapper.toJsonNode(buildPlaceholderDocument()))
                             .build());
@@ -2061,15 +2180,15 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             UUID designId,
             DesignStageResult hld,
             DesignStageResult lld,
-            List<Component> components
-    ) {
+            List<Component> components) {
         final String stageName = "DIAGRAM_METADATA";
         final int progress = 96;
         designGenerationPublisher.publishStageStarted(designId.toString(), stageName, progress);
         log.info("DesignId={} stage={} started", designId, stageName);
         try {
             DesignStageResult result = aiStageService.generateDiagramMetadata(hld, lld);
-            designGenerationPublisher.publishStageCompleted(designId.toString(), stageName, progress, result.getContent());
+            designGenerationPublisher.publishStageCompleted(designId.toString(), stageName, progress,
+                    result.getContent());
             log.info("DesignId={} stage={} completed", designId, stageName);
             return result;
         } catch (Exception ex) {
@@ -2093,19 +2212,20 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             DesignStageResult hld,
             DesignStageResult componentBreakdown,
             DesignStageResult lld,
-            List<Component> components
-    ) {
+            List<Component> components) {
         final String stageName = "TASK_BREAKDOWN";
         final int progress = 97;
         designGenerationPublisher.publishStageStarted(designId.toString(), stageName, progress);
         log.info("DesignId={} stage={} started", designId, stageName);
         try {
             DesignStageResult result = aiStageService.generateTaskBreakdown(hld, componentBreakdown, lld);
-            designGenerationPublisher.publishStageCompleted(designId.toString(), stageName, progress, result.getContent());
+            designGenerationPublisher.publishStageCompleted(designId.toString(), stageName, progress,
+                    result.getContent());
             log.info("DesignId={} stage={} completed", designId, stageName);
             return result;
         } catch (Exception ex) {
-            log.warn("DesignId={} stage={} failed. Falling back to deterministic task breakdown.", designId, stageName, ex);
+            log.warn("DesignId={} stage={} failed. Falling back to deterministic task breakdown.", designId, stageName,
+                    ex);
             designGenerationPublisher.publishStageFailed(designId.toString(), stageName, ex.getMessage());
             List<TaskBreakdownItem> fallbackItems = buildFallbackTaskBreakdown(components);
             String fallbackJson = toJsonSafely(Map.of("task_breakdown", fallbackItems), "{\"task_breakdown\":[]}");
@@ -2124,30 +2244,28 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             UUID designId,
             DesignStageResult hld,
             DesignStageResult componentBreakdown,
-            DesignStageResult lld
-    ) {
+            DesignStageResult lld,
+            DesignRequestDTO request) {
         final String stageName = "WIREFRAME";
         final int progress = 100;
         designGenerationPublisher.publishStageStarted(designId.toString(), stageName, progress);
         log.info("DesignId={} stage={} started", designId, stageName);
         try {
-            DesignStageResult result = aiStageService.generateWireframe(hld, componentBreakdown, lld);
-            designGenerationPublisher.publishStageCompleted(designId.toString(), stageName, progress, result.getContent());
+            DesignStageResult result = aiStageService.generateWireframe(hld, componentBreakdown, lld, request);
+            designGenerationPublisher.publishStageCompleted(designId.toString(), stageName, progress,
+                    result.getContent());
             log.info("DesignId={} stage={} completed", designId, stageName);
             return result;
         } catch (Exception ex) {
             log.warn("DesignId={} stage={} failed. Falling back to deterministic wireframe.", designId, stageName, ex);
             designGenerationPublisher.publishStageFailed(designId.toString(), stageName, ex.getMessage());
             List<WireframeScreen> fallbackScreens = enrichWireframeScreens(
-                    buildFallbackWireframeScreens(extractComponentsForFallback(componentBreakdown))
-            );
+                    buildFallbackWireframeScreens(extractComponentsForFallback(componentBreakdown)));
             String fallbackJson = toJsonSafely(
                     Map.of(
                             "wireframe_summary", "Wireframe generated from module and API design context.",
-                            "screens", fallbackScreens
-                    ),
-                    "{\"wireframe_summary\":\"\",\"screens\":[]}"
-            );
+                            "screens", fallbackScreens),
+                    "{\"wireframe_summary\":\"\",\"screens\":[]}");
             DesignStageResult fallback = DesignStageResult.builder()
                     .stageName(stageName)
                     .content(fallbackJson)
@@ -2215,34 +2333,41 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                         component.getName(),
                         defaultTechnology(type),
                         component.getResponsibility(),
-                        normalizeLayer(type)
-                );
+                        normalizeLayer(type));
                 nodesById.putIfAbsent(id, fallbackNode);
             }
         }
 
-        ensureDefaultNode(nodesById, "client", "client", "Client Apps", "Web / Mobile", "End users and client applications");
+        ensureDefaultNode(nodesById, "client", "client", "Client Apps", "Web / Mobile",
+                "End users and client applications");
         ensureDefaultNode(nodesById, "cdn", "cdn", "CDN", "CloudFront / Cloud CDN", "Caches static and edge content");
-        ensureDefaultNode(nodesById, "api-gateway", "gateway", "API Gateway", "Kong / Nginx", "Single entry and routing");
-        ensureDefaultNode(nodesById, "auth-service", "service", "Auth Service", "OAuth2 / JWT", "Authentication and authorization");
-        ensureDefaultNode(nodesById, "core-service", "service", "Core Service", "Spring Boot", "Core business logic and orchestration");
+        ensureDefaultNode(nodesById, "api-gateway", "gateway", "API Gateway", "Kong / Nginx",
+                "Single entry and routing");
+        ensureDefaultNode(nodesById, "auth-service", "service", "Auth Service", "OAuth2 / JWT",
+                "Authentication and authorization");
+        ensureDefaultNode(nodesById, "core-service", "service", "Core Service", "Spring Boot",
+                "Core business logic and orchestration");
         ensureDefaultNode(nodesById, "cache", "cache", "Cache", "Redis", "Low-latency hot data");
-        ensureDefaultNode(nodesById, "message-queue", "queue", "Message Queue", "Kafka / SQS", "Asynchronous decoupling");
-        ensureDefaultNode(nodesById, "worker", "worker", "Async Worker", "Spring Worker", "Background processing and retries");
-        ensureDefaultNode(nodesById, "primary-database", "database", "Primary Database", "PostgreSQL", "System of record");
-        ensureDefaultNode(nodesById, "observability", "observability", "Observability", "Prometheus / Grafana", "Metrics, logs and traces");
+        ensureDefaultNode(nodesById, "message-queue", "queue", "Message Queue", "Kafka / SQS",
+                "Asynchronous decoupling");
+        ensureDefaultNode(nodesById, "worker", "worker", "Async Worker", "Spring Worker",
+                "Background processing and retries");
+        ensureDefaultNode(nodesById, "primary-database", "database", "Primary Database", "PostgreSQL",
+                "System of record");
+        ensureDefaultNode(nodesById, "observability", "observability", "Observability", "Prometheus / Grafana",
+                "Metrics, logs and traces");
 
         List<DiagramNode> nodes = new ArrayList<>(nodesById.values());
         if (nodes.size() < MIN_VISUAL_NODES) {
-            ensureDefaultNode(nodesById, "object-storage", "storage", "Object Storage", "S3 / GCS", "Stores large binary artifacts");
+            ensureDefaultNode(nodesById, "object-storage", "storage", "Object Storage", "S3 / GCS",
+                    "Stores large binary artifacts");
             nodes = new ArrayList<>(nodesById.values());
         }
 
         List<DiagramEdge> edges = normalizeEdges(
                 rawMetadata == null ? null : rawMetadata.getEdges(),
                 nodesById.keySet(),
-                components
-        );
+                components);
         assignPositions(nodes);
 
         String mermaid = rawMetadata == null ? "" : rawMetadata.getMermaid();
@@ -2272,13 +2397,15 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
 
         String type = normalizeType(rawNode.getType());
         if (rawNode.getData() != null && (type.isBlank() || "service".equals(type))) {
-            type = normalizeType(rawNode.getData().getLayer() == null ? rawNode.getType() : rawNode.getData().getLayer());
+            type = normalizeType(
+                    rawNode.getData().getLayer() == null ? rawNode.getType() : rawNode.getData().getLayer());
         }
         String finalType = type.isBlank() ? "service" : type;
 
         DiagramNodeData current = rawNode.getData() == null ? new DiagramNodeData() : rawNode.getData();
         DiagramNodeData data = DiagramNodeData.builder()
-                .label(current.getLabel() == null || current.getLabel().isBlank() ? titleFromId(id) : current.getLabel())
+                .label(current.getLabel() == null || current.getLabel().isBlank() ? titleFromId(id)
+                        : current.getLabel())
                 .technology(current.getTechnology() == null || current.getTechnology().isBlank()
                         ? defaultTechnology(finalType)
                         : current.getTechnology())
@@ -2304,12 +2431,10 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             String type,
             String label,
             String technology,
-            String description
-    ) {
+            String description) {
         nodesById.computeIfAbsent(
                 id,
-                key -> createNode(key, type, label, technology, description, normalizeLayer(type))
-        );
+                key -> createNode(key, type, label, technology, description, normalizeLayer(type)));
     }
 
     private DiagramNode createNode(
@@ -2318,8 +2443,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             String label,
             String technology,
             String description,
-            String layer
-    ) {
+            String layer) {
         return DiagramNode.builder()
                 .id(slugify(id))
                 .type(normalizeType(type))
@@ -2335,8 +2459,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
     private List<DiagramEdge> normalizeEdges(
             List<DiagramEdge> rawEdges,
             Set<String> validNodeIds,
-            List<Component> components
-    ) {
+            List<Component> components) {
         Map<String, DiagramEdge> deduped = new LinkedHashMap<>();
         if (rawEdges != null) {
             for (DiagramEdge rawEdge : rawEdges) {
@@ -2445,8 +2568,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                         .from(source)
                         .to(target)
                         .label(label)
-                        .build()
-        );
+                        .build());
     }
 
     private void assignPositions(List<DiagramNode> nodes) {
@@ -2478,8 +2600,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                         DiagramPosition.builder()
                                 .x(x)
                                 .y(140 + (index * BASE_Y_SPACING))
-                                .build()
-                );
+                                .build());
             }
             layerIndex += 1;
         }
@@ -2493,9 +2614,10 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         for (DiagramNode node : nodes) {
             String safeId = mermaidSafeId(node.getId());
             idMap.put(node.getId(), safeId);
-            String label = node.getData() != null && node.getData().getLabel() != null && !node.getData().getLabel().isBlank()
-                    ? node.getData().getLabel()
-                    : titleFromId(node.getId());
+            String label = node.getData() != null && node.getData().getLabel() != null
+                    && !node.getData().getLabel().isBlank()
+                            ? node.getData().getLabel()
+                            : titleFromId(node.getId());
             builder.append("    ")
                     .append(safeId)
                     .append("[\"")
@@ -2605,13 +2727,15 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
         if (normalized.contains("auth")) {
             return "service";
         }
-        if (normalized.contains("db") || normalized.contains("database") || normalized.contains("postgres") || normalized.contains("mysql")) {
+        if (normalized.contains("db") || normalized.contains("database") || normalized.contains("postgres")
+                || normalized.contains("mysql")) {
             return "database";
         }
         if (normalized.contains("cache") || normalized.contains("redis")) {
             return "cache";
         }
-        if (normalized.contains("queue") || normalized.contains("kafka") || normalized.contains("sqs") || normalized.contains("rabbit")) {
+        if (normalized.contains("queue") || normalized.contains("kafka") || normalized.contains("sqs")
+                || normalized.contains("rabbit")) {
             return "queue";
         }
         if (normalized.contains("worker") || normalized.contains("consumer")) {
@@ -2759,8 +2883,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
             UUID designId,
             String stageName,
             int progress,
-            StageSupplier stageSupplier
-    ) {
+            StageSupplier stageSupplier) {
         designGenerationPublisher.publishStageStarted(designId.toString(), stageName, progress);
         log.info("DesignId={} stage={} started", designId, stageName);
         try {
@@ -2769,8 +2892,7 @@ public class DesignOrchestratorServiceImpl implements DesignOrchestratorService 
                     designId.toString(),
                     stageName,
                     progress,
-                    result.getContent()
-            );
+                    result.getContent());
             log.info("DesignId={} stage={} completed", designId, stageName);
             return result;
         } catch (Exception ex) {

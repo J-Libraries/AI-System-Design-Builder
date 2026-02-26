@@ -40,9 +40,9 @@ public class AIStageServiceImpl implements AIStageService {
             "ui_components",
             "interactions",
             "api_bindings",
+            "requirement_coverage",
             "next_screen_ids",
-            "screen_html"
-    );
+            "screen_html");
 
     private final SarvamClient sarvamClient;
     private final PromptTemplateService promptTemplateService;
@@ -53,8 +53,7 @@ public class AIStageServiceImpl implements AIStageService {
         return runStage(
                 "SOW",
                 promptTemplateService.sowPrompt(request),
-                Set.of("sow")
-        );
+                Set.of("sow"));
     }
 
     @Override
@@ -73,9 +72,7 @@ public class AIStageServiceImpl implements AIStageService {
                         "software_architecture",
                         "devops_strategy",
                         "docker_strategy",
-                        "tradeoffs"
-                )
-        );
+                        "tradeoffs"));
     }
 
     @Override
@@ -83,8 +80,7 @@ public class AIStageServiceImpl implements AIStageService {
         return runStage(
                 "COMPONENT_BREAKDOWN",
                 promptTemplateService.componentBreakdownPrompt(hld.getContent()),
-                Set.of("components")
-        );
+                Set.of("components"));
     }
 
     @Override
@@ -92,8 +88,7 @@ public class AIStageServiceImpl implements AIStageService {
         return runStage(
                 "LLD",
                 promptTemplateService.lldPrompt(componentBreakdown.getContent()),
-                Set.of("lld")
-        );
+                Set.of("lld"));
     }
 
     @Override
@@ -101,8 +96,7 @@ public class AIStageServiceImpl implements AIStageService {
         return runStage(
                 "DATA_FLOW",
                 promptTemplateService.dataFlowPrompt(hld.getContent(), lld.getContent()),
-                Set.of("data_flow_scenarios")
-        );
+                Set.of("data_flow_scenarios"));
     }
 
     @Override
@@ -110,8 +104,7 @@ public class AIStageServiceImpl implements AIStageService {
         return runStage(
                 "SCALING_STRATEGY",
                 promptTemplateService.scalingStrategyPrompt(hld.getContent()),
-                Set.of("scaling_strategy")
-        );
+                Set.of("scaling_strategy"));
     }
 
     @Override
@@ -119,8 +112,7 @@ public class AIStageServiceImpl implements AIStageService {
         return runStage(
                 "FAILURE_HANDLING",
                 promptTemplateService.failureHandlingPrompt(hld.getContent()),
-                Set.of("failure_handling")
-        );
+                Set.of("failure_handling"));
     }
 
     @Override
@@ -128,49 +120,48 @@ public class AIStageServiceImpl implements AIStageService {
         return runStage(
                 "DIAGRAM_METADATA",
                 promptTemplateService.diagramMetadataPrompt(hld.getContent(), lld.getContent()),
-                Set.of("nodes", "edges")
-        );
+                Set.of("nodes", "edges"));
     }
 
     @Override
     public DesignStageResult generateTaskBreakdown(
             DesignStageResult hld,
             DesignStageResult componentBreakdown,
-            DesignStageResult lld
-    ) {
+            DesignStageResult lld) {
         return runStage(
                 "TASK_BREAKDOWN",
                 promptTemplateService.taskBreakdownPrompt(
                         hld.getContent(),
                         componentBreakdown.getContent(),
-                        lld.getContent()
-                ),
-                Set.of("task_breakdown")
-        );
+                        lld.getContent()),
+                Set.of("task_breakdown"));
     }
 
     @Override
     public DesignStageResult generateWireframe(
             DesignStageResult hld,
             DesignStageResult componentBreakdown,
-            DesignStageResult lld
-    ) {
+            DesignStageResult lld,
+            DesignRequestDTO request) {
         String hldJson = hld.getContent();
         String componentBreakdownJson = componentBreakdown.getContent();
         String lldJson = lld.getContent();
+        String requirementContextJson = buildRequirementContextJson(request);
 
         log.info("Starting AI stage=WIREFRAME with recursive per-screen generation pipeline");
         DesignStageResult screenListResult = runStage(
                 "WIREFRAME_SCREEN_LIST",
-                promptTemplateService.wireframeScreenListPrompt(hldJson, componentBreakdownJson, lldJson),
-                Set.of("wireframe_summary", "screens")
-        );
+                promptTemplateService.wireframeScreenListPrompt(
+                        hldJson,
+                        componentBreakdownJson,
+                        lldJson,
+                        requirementContextJson),
+                Set.of("wireframe_summary", "screens"));
 
         JsonNode screenListNode = parseAndValidate(
                 "WIREFRAME_SCREEN_LIST_RESULT",
                 screenListResult.getContent(),
-                Set.of("wireframe_summary", "screens")
-        );
+                Set.of("wireframe_summary", "screens"));
         JsonNode rawScreens = screenListNode.path("screens");
         if (!rawScreens.isArray() || rawScreens.isEmpty()) {
             throw new InvalidAiResponseException("Wireframe screen list is empty");
@@ -180,7 +171,8 @@ public class AIStageServiceImpl implements AIStageService {
         for (int index = 0; index < rawScreens.size(); index++) {
             JsonNode screenSpec = normalizeScreenSpec(rawScreens.get(index), index);
             String stageName = "WIREFRAME_SCREEN_HTML_" + (index + 1);
-            log.info("Generating wireframe HTML for screen index={} routeId={}", index + 1, screenSpec.path("route_id").asText());
+            log.info("Generating wireframe HTML for screen index={} routeId={}", index + 1,
+                    screenSpec.path("route_id").asText());
 
             DesignStageResult screenResult = runStage(
                     stageName,
@@ -188,27 +180,30 @@ public class AIStageServiceImpl implements AIStageService {
                             hldJson,
                             componentBreakdownJson,
                             lldJson,
+                            requirementContextJson,
                             rawScreens.toString(),
-                            screenSpec.toString()
-                    ),
-                    WIREFRAME_SCREEN_REQUIRED_FIELDS
-            );
+                            screenSpec.toString()),
+                    WIREFRAME_SCREEN_REQUIRED_FIELDS);
 
             JsonNode generatedScreen = parseAndValidate(
                     stageName + "_RESULT",
                     screenResult.getContent(),
-                    WIREFRAME_SCREEN_REQUIRED_FIELDS
-            );
-            JsonNode validatedScreen = validateAndRepairScreenHtml(screenSpec, generatedScreen, index);
+                    WIREFRAME_SCREEN_REQUIRED_FIELDS);
+            JsonNode validatedScreen = validateAndRepairScreenHtml(
+                    requirementContextJson,
+                    screenSpec,
+                    generatedScreen,
+                    index);
             generatedScreens.add(validatedScreen);
         }
 
         ArrayNode connectedScreens = connectWireframeScreens(generatedScreens);
+        ensureRequirementsCoverage(connectedScreens, request);
         ObjectNode finalPayload = objectMapper.createObjectNode();
         finalPayload.put(
                 "wireframe_summary",
-                safeText(screenListNode.path("wireframe_summary"), "Interactive wireframe generated via recursive screen pipeline.")
-        );
+                safeText(screenListNode.path("wireframe_summary"),
+                        "Interactive wireframe generated via recursive screen pipeline."));
         finalPayload.set("screens", connectedScreens);
 
         return DesignStageResult.builder()
@@ -218,7 +213,55 @@ public class AIStageServiceImpl implements AIStageService {
                 .build();
     }
 
-    private JsonNode validateAndRepairScreenHtml(JsonNode screenSpec, JsonNode generatedScreen, int index) {
+    @Override
+    public DesignStageResult iterateWireframe(
+            String hldJson,
+            String componentBreakdownJson,
+            String lldJson,
+            String currentWireframeJson,
+            String userPrompt) {
+        log.info("Starting AI stage=WIREFRAME_ITERATION with prompt={}", userPrompt);
+        DesignStageResult result = runStage(
+                "WIREFRAME_ITERATION",
+                promptTemplateService.wireframeIterationPrompt(
+                        hldJson,
+                        componentBreakdownJson,
+                        lldJson,
+                        currentWireframeJson,
+                        userPrompt),
+                Set.of("wireframe_summary", "screens"));
+
+        JsonNode payload = parseAndValidate(
+                "WIREFRAME_ITERATION_RESULT",
+                result.getContent(),
+                Set.of("wireframe_summary", "screens"));
+
+        ArrayNode rawScreens = (ArrayNode) payload.path("screens");
+        ArrayNode processedScreens = objectMapper.createArrayNode();
+        String iterationRequirementContext = buildRequirementContextJsonFromScreens(rawScreens);
+
+        for (int i = 0; i < rawScreens.size(); i++) {
+            JsonNode screen = rawScreens.get(i);
+            JsonNode spec = normalizeScreenSpec(screen, i);
+            processedScreens.add(validateAndRepairScreenHtml(iterationRequirementContext, spec, screen, i));
+        }
+
+        ArrayNode connectedScreens = connectWireframeScreens(processedScreens);
+        ObjectNode finalPayload = (ObjectNode) payload;
+        finalPayload.set("screens", connectedScreens);
+
+        return DesignStageResult.builder()
+                .stageName("WIREFRAME")
+                .content(finalPayload.toString())
+                .createdAt(LocalDateTime.now())
+                .build();
+    }
+
+    private JsonNode validateAndRepairScreenHtml(
+            String requirementContextJson,
+            JsonNode screenSpec,
+            JsonNode generatedScreen,
+            int index) {
         JsonNode currentScreen = coerceScreenNode(screenSpec, generatedScreen, index);
 
         for (int attempt = 1; attempt <= MAX_SCREEN_HTML_REPAIR_ATTEMPTS + 1; attempt++) {
@@ -235,8 +278,7 @@ public class AIStageServiceImpl implements AIStageService {
                         "Wireframe screen "
                                 + safeText(currentScreen.path("route_id"), "screen-" + (index + 1))
                                 + " failed HTML validation after retries: "
-                                + String.join("; ", validationErrors)
-                );
+                                + String.join("; ", validationErrors));
             }
 
             String stageName = "WIREFRAME_SCREEN_REPAIR_" + (index + 1) + "_ATTEMPT_" + attempt;
@@ -244,18 +286,17 @@ public class AIStageServiceImpl implements AIStageService {
                     "Wireframe screen index={} failed validation on attempt={}: {}. Triggering repair.",
                     index + 1,
                     attempt,
-                    String.join("; ", validationErrors)
-            );
+                    String.join("; ", validationErrors));
             DesignStageResult repaired = runStage(
                     stageName,
                     promptTemplateService.wireframeScreenRepairPrompt(
+                            requirementContextJson,
                             screenSpec.toString(),
                             currentScreen.toString(),
-                            String.join("; ", validationErrors)
-                    ),
-                    WIREFRAME_SCREEN_REQUIRED_FIELDS
-            );
-            JsonNode repairedNode = parseAndValidate(stageName + "_RESULT", repaired.getContent(), WIREFRAME_SCREEN_REQUIRED_FIELDS);
+                            String.join("; ", validationErrors)),
+                    WIREFRAME_SCREEN_REQUIRED_FIELDS);
+            JsonNode repairedNode = parseAndValidate(stageName + "_RESULT", repaired.getContent(),
+                    WIREFRAME_SCREEN_REQUIRED_FIELDS);
             currentScreen = coerceScreenNode(screenSpec, repairedNode, index);
         }
 
@@ -304,6 +345,11 @@ public class AIStageServiceImpl implements AIStageService {
             }
         }
 
+        JsonNode requirementCoverage = screenNode.path("requirement_coverage");
+        if (!requirementCoverage.isArray() || requirementCoverage.isEmpty()) {
+            errors.add("requirement_coverage must include at least one requirement");
+        }
+
         return errors;
     }
 
@@ -322,11 +368,16 @@ public class AIStageServiceImpl implements AIStageService {
         node.put("purpose", safeText(rawSpec.path("purpose"), "Primary workflow screen for " + screenName + "."));
         node.put(
                 "layout_description",
-                safeText(rawSpec.path("layout_description"), "Structured UI with header, main content, and action footer.")
-        );
+                safeText(rawSpec.path("layout_description"),
+                        "Structured UI with header, main content, and action footer."));
         node.set("ui_components", toStringArrayNode(rawSpec.path("ui_components")));
         node.set("interactions", toStringArrayNode(rawSpec.path("interactions")));
         node.set("api_bindings", toStringArrayNode(rawSpec.path("api_bindings")));
+        ArrayNode requirementCoverage = toStringArrayNode(rawSpec.path("requirement_coverage"));
+        if (requirementCoverage.isEmpty()) {
+            requirementCoverage.add(safeText(rawSpec.path("purpose"), screenName));
+        }
+        node.set("requirement_coverage", requirementCoverage);
         node.set("next_screen_ids", normalizeRouteArray(rawSpec.path("next_screen_ids")));
         return node;
     }
@@ -336,8 +387,8 @@ public class AIStageServiceImpl implements AIStageService {
         String fallbackName = safeText(screenSpec.path("screen_name"), "Screen " + (index + 1));
         String generatedName = safeText(generatedScreen.path("screen_name"), fallbackName);
         String routeId = normalizeRouteId(
-                safeText(generatedScreen.path("route_id"), safeText(screenSpec.path("route_id"), slugify(generatedName)))
-        );
+                safeText(generatedScreen.path("route_id"),
+                        safeText(screenSpec.path("route_id"), slugify(generatedName))));
         if (routeId.isBlank()) {
             routeId = "screen-" + (index + 1);
         }
@@ -350,12 +401,20 @@ public class AIStageServiceImpl implements AIStageService {
                 "layout_description",
                 safeText(
                         generatedScreen.path("layout_description"),
-                        safeText(screenSpec.path("layout_description"), "Structured UI with clear visual hierarchy.")
-                )
-        );
-        node.set("ui_components", mergeStringArrays(generatedScreen.path("ui_components"), screenSpec.path("ui_components")));
-        node.set("interactions", mergeStringArrays(generatedScreen.path("interactions"), screenSpec.path("interactions")));
-        node.set("api_bindings", mergeStringArrays(generatedScreen.path("api_bindings"), screenSpec.path("api_bindings")));
+                        safeText(screenSpec.path("layout_description"), "Structured UI with clear visual hierarchy.")));
+        node.set("ui_components",
+                mergeStringArrays(generatedScreen.path("ui_components"), screenSpec.path("ui_components")));
+        node.set("interactions",
+                mergeStringArrays(generatedScreen.path("interactions"), screenSpec.path("interactions")));
+        node.set("api_bindings",
+                mergeStringArrays(generatedScreen.path("api_bindings"), screenSpec.path("api_bindings")));
+        ArrayNode requirementCoverage = mergeStringArrays(
+                generatedScreen.path("requirement_coverage"),
+                screenSpec.path("requirement_coverage"));
+        if (requirementCoverage.isEmpty()) {
+            requirementCoverage.add(safeText(screenSpec.path("purpose"), generatedName));
+        }
+        node.set("requirement_coverage", requirementCoverage);
         ArrayNode next = normalizeRouteArray(generatedScreen.path("next_screen_ids"));
         if (next.isEmpty()) {
             next = normalizeRouteArray(screenSpec.path("next_screen_ids"));
@@ -382,8 +441,7 @@ public class AIStageServiceImpl implements AIStageService {
                     escapeHtml(generatedName),
                     escapeHtml(safeText(generatedScreen.path("purpose"), "Primary screen")),
                     escapeHtml(safeText(generatedScreen.path("layout_description"), "Detailed layout")),
-                    buildNavigationButtons(next)
-            );
+                    buildNavigationButtons(next));
         }
         node.put("screen_html", html);
         return node;
@@ -417,6 +475,84 @@ public class AIStageServiceImpl implements AIStageService {
             connected.add(current);
         }
         return connected;
+    }
+
+    private void ensureRequirementsCoverage(ArrayNode screens, DesignRequestDTO request) {
+        if (screens == null || screens.isEmpty() || request == null || request.getFunctionalRequirements() == null) {
+            return;
+        }
+
+        LinkedHashSet<String> required = new LinkedHashSet<>();
+        for (String requirement : request.getFunctionalRequirements()) {
+            String normalized = normalizeRequirementText(requirement);
+            if (!normalized.isBlank()) {
+                required.add(normalized);
+            }
+        }
+        if (required.isEmpty()) {
+            return;
+        }
+
+        LinkedHashSet<String> covered = new LinkedHashSet<>();
+        for (JsonNode screen : screens) {
+            for (JsonNode requirement : toStringArrayNode(screen.path("requirement_coverage"))) {
+                String normalized = normalizeRequirementText(requirement.asText(""));
+                if (!normalized.isBlank()) {
+                    covered.add(normalized);
+                }
+            }
+        }
+
+        List<String> uncovered = required.stream().filter(item -> !covered.contains(item)).toList();
+        if (uncovered.isEmpty()) {
+            return;
+        }
+
+        log.info("Wireframe had uncovered requirements count={}; attaching to first screen coverage", uncovered.size());
+        ObjectNode first = (ObjectNode) screens.get(0);
+        ArrayNode coverage = mergeStringArrays(first.path("requirement_coverage"), objectMapper.createArrayNode());
+        for (String requirement : uncovered) {
+            coverage.add(requirement);
+        }
+        first.set("requirement_coverage", coverage);
+    }
+
+    private String buildRequirementContextJson(DesignRequestDTO request) {
+        ObjectNode context = objectMapper.createObjectNode();
+        if (request == null) {
+            context.put("note", "No request context available");
+            return context.toString();
+        }
+
+        context.put("product_name", request.getProductName());
+        context.put("target_platform", request.getTargetPlatform() == null ? "" : request.getTargetPlatform().name());
+        context.put("design_domain", request.getDesignDomain() == null ? "" : request.getDesignDomain().name());
+        context.put("expected_dau", request.getExpectedDAU() == null ? 0 : request.getExpectedDAU());
+        context.put("region", request.getRegion() == null ? "" : request.getRegion());
+        context.put("scale", request.getScale() == null ? "" : request.getScale().name());
+        context.set("functional_requirements", objectMapper.valueToTree(
+                request.getFunctionalRequirements() == null ? List.of() : request.getFunctionalRequirements()));
+        context.set("non_functional_requirements", objectMapper.valueToTree(
+                request.getNonFunctionalRequirements() == null ? List.of() : request.getNonFunctionalRequirements()));
+        return context.toString();
+    }
+
+    private String buildRequirementContextJsonFromScreens(ArrayNode screens) {
+        LinkedHashSet<String> requirements = new LinkedHashSet<>();
+        if (screens != null) {
+            for (JsonNode screen : screens) {
+                for (JsonNode item : toStringArrayNode(screen.path("requirement_coverage"))) {
+                    String normalized = normalizeRequirementText(item.asText(""));
+                    if (!normalized.isBlank()) {
+                        requirements.add(normalized);
+                    }
+                }
+            }
+        }
+        ObjectNode context = objectMapper.createObjectNode();
+        context.put("source", "wireframe_iteration_existing_coverage");
+        context.set("functional_requirements", objectMapper.valueToTree(new ArrayList<>(requirements)));
+        return context.toString();
     }
 
     private String ensureNavigationInHtml(String html, ArrayNode nextScreenIds) {
@@ -516,6 +652,13 @@ public class AIStageServiceImpl implements AIStageService {
         return slug.length() > 64 ? slug.substring(0, 64) : slug;
     }
 
+    private String normalizeRequirementText(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replaceAll("\\s+", " ").trim();
+    }
+
     private String slugify(String value) {
         if (value == null) {
             return "";
@@ -567,15 +710,13 @@ public class AIStageServiceImpl implements AIStageService {
                             "AI stage={} returned invalid JSON on attempt={}. Retrying.",
                             stageName,
                             attempt,
-                            ex
-                    );
+                            ex);
                     prompt = buildRetryPrompt(stageName, initialPrompt, lastInvalidResponse);
                 } else {
                     log.error("AI stage={} failed after max retries", stageName, ex);
                     throw new InvalidAiResponseException(
                             "Invalid JSON received for stage " + stageName + " after retries",
-                            ex
-                    );
+                            ex);
                 }
             }
         }
@@ -592,8 +733,7 @@ public class AIStageServiceImpl implements AIStageService {
             for (String field : requiredFields) {
                 if (!node.has(field) || node.get(field).isNull()) {
                     throw new InvalidAiResponseException(
-                            "Stage " + stageName + " is missing required field: " + field
-                    );
+                            "Stage " + stageName + " is missing required field: " + field);
                 }
             }
             return node;
@@ -628,7 +768,8 @@ public class AIStageServiceImpl implements AIStageService {
         if (lastException != null) {
             throw lastException;
         }
-        throw new JsonProcessingException("No JSON candidate available for parsing") { };
+        throw new JsonProcessingException("No JSON candidate available for parsing") {
+        };
     }
 
     private List<String> buildParseCandidates(String rawResponse) {

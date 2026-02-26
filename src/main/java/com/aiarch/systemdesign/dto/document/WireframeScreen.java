@@ -26,6 +26,7 @@ public class WireframeScreen {
     private List<String> uiComponents;
     private List<String> interactions;
     private List<String> apiBindings;
+    private List<String> requirementCoverage;
     private List<String> nextScreenIds;
     private String screenHtml;
 }

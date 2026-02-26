@@ -4,41 +4,52 @@ import com.aiarch.systemdesign.dto.DesignRequestDTO;
 
 public interface PromptTemplateService {
 
-    String sowPrompt(DesignRequestDTO request);
+        String sowPrompt(DesignRequestDTO request);
 
-    String hldPrompt(DesignRequestDTO request);
+        String hldPrompt(DesignRequestDTO request);
 
-    String componentBreakdownPrompt(String hldJson);
+        String componentBreakdownPrompt(String hldJson);
 
-    String lldPrompt(String componentBreakdownJson);
+        String lldPrompt(String componentBreakdownJson);
 
-    String dataFlowPrompt(String hldJson, String lldJson);
+        String dataFlowPrompt(String hldJson, String lldJson);
 
-    String scalingStrategyPrompt(String hldJson);
+        String scalingStrategyPrompt(String hldJson);
 
-    String failureHandlingPrompt(String hldJson);
+        String failureHandlingPrompt(String hldJson);
 
-    String diagramMetadataPrompt(String hldJson, String lldJson);
+        String diagramMetadataPrompt(String hldJson, String lldJson);
 
-    String taskBreakdownPrompt(String hldJson, String componentBreakdownJson, String lldJson);
+        String taskBreakdownPrompt(String hldJson, String componentBreakdownJson, String lldJson);
 
-    String wireframePrompt(String hldJson, String componentBreakdownJson, String lldJson);
+        String wireframePrompt(String hldJson, String componentBreakdownJson, String lldJson);
 
-    String wireframeScreenListPrompt(String hldJson, String componentBreakdownJson, String lldJson);
+        String wireframeScreenListPrompt(
+                        String hldJson,
+                        String componentBreakdownJson,
+                        String lldJson,
+                        String requirementContextJson);
 
-    String wireframeScreenHtmlPrompt(
-            String hldJson,
-            String componentBreakdownJson,
-            String lldJson,
-            String screenListJson,
-            String screenSpecJson
-    );
+        String wireframeScreenHtmlPrompt(
+                        String hldJson,
+                        String componentBreakdownJson,
+                        String lldJson,
+                        String requirementContextJson,
+                        String screenListJson,
+                        String screenSpecJson);
 
-    String wireframeScreenRepairPrompt(
-            String screenSpecJson,
-            String currentScreenJson,
-            String validationError
-    );
+        String wireframeScreenRepairPrompt(
+                        String requirementContextJson,
+                        String screenSpecJson,
+                        String currentScreenJson,
+                        String validationError);
 
-    String invalidJsonRetrySuffix();
+        String wireframeIterationPrompt(
+                        String hldJson,
+                        String componentBreakdownJson,
+                        String lldJson,
+                        String currentWireframeJson,
+                        String userPrompt);
+
+        String invalidJsonRetrySuffix();
 }
